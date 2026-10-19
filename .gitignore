@@ -1,0 +1,56 @@
+# ── Game data: NEVER commit ─────────────────────────────
+baserom/
+extracted/
+romfs/
+exefs/
+*.3ds
+*.cci
+*.cia
+*.cxi
+*.cfa
+*.app
+*.ncch
+*.arc
+code.bin
+exheader.bin
+romfs.bin
+exefs.bin
+*.sav
+
+# ── Build output ───────────────────────────────────────
+build/
+export/
+out/
+*.elf
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+
+# ── Disassembler projects (may embed game code) ────────
+*.gpr
+*.rep/
+*.i64
+*.idb
+*.bndb
+
+# ── Servers' own state (server/): a lobby's private key and names, a room's token ──
+lobby-data/
+server/docker/.env
+
+# ── Python ─────────────────────────────────────────────
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# ── Agents' git worktrees ──────────────────────────────
+.claude/worktrees/
+
+# ── Editors / OS ───────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

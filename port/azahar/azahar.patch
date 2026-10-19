@@ -1,0 +1,1387 @@
+diff --git a/externals/sdl2/CMakeLists.txt b/externals/sdl2/CMakeLists.txt
+index f6e3326..2dca6cd 100644
+--- a/externals/sdl2/CMakeLists.txt
++++ b/externals/sdl2/CMakeLists.txt
+@@ -6,7 +6,8 @@ set(SDL_STATIC ON CACHE BOOL "")
+ set(SDL_ATOMIC ON CACHE BOOL "")
+ set(SDL_AUDIO ON CACHE BOOL "")
+ set(SDL_VIDEO ON CACHE BOOL "")
+-set(SDL_RENDER OFF CACHE BOOL "")
++# MH4U PC port: its app (port/app, mh4u) draws its launcher with SDL_Renderer
++set(SDL_RENDER ON CACHE BOOL "")
+ set(SDL_EVENTS ON CACHE BOOL "")
+ set(SDL_JOYSTICK ON CACHE BOOL "")
+ set(SDL_HAPTIC OFF CACHE BOOL "")
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 70f8173..2b04b4c 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -201,6 +201,12 @@ if (ENABLE_TESTS)
+     add_subdirectory(tests)
+ endif()
+ 
++# MH4U PC port (github.com/CompaLarios18/MH4UltimateDC, port/)
++set(MH4U_PORT_DIR "" CACHE PATH "MH4UltimateDC's port/ directory")
++if (MH4U_PORT_DIR)
++    add_subdirectory(${MH4U_PORT_DIR} mh4u_port)
++endif()
++
+ if (ENABLE_QT)
+     add_subdirectory(citra_qt)
+ endif()
+diff --git a/src/citra_qt/CMakeLists.txt b/src/citra_qt/CMakeLists.txt
+index 8723f05..88dceae 100644
+--- a/src/citra_qt/CMakeLists.txt
++++ b/src/citra_qt/CMakeLists.txt
+@@ -302,6 +302,11 @@ endif()
+ create_target_directory_groups(citra_qt)
+ 
+ target_link_libraries(citra_qt PRIVATE audio_core citra_common citra_core input_common network video_core)
++if (TARGET mh4u_backend)
++    # MH4U PC port: run recompiled game code when it's available (port/src/frontend.h)
++    target_link_libraries(citra_qt PRIVATE mh4u_backend)
++    target_compile_definitions(citra_qt PRIVATE MH4U_BACKEND)
++endif()
+ target_link_libraries(citra_qt PUBLIC Boost::boost Qt6::Widgets)
+ target_link_libraries(citra_qt PRIVATE nihstro-headers Qt6::Multimedia Qt6::Concurrent)
+ target_link_libraries(citra_qt PRIVATE ${PLATFORM_LIBRARIES} Threads::Threads)
+diff --git a/src/citra_qt/citra_qt.cpp b/src/citra_qt/citra_qt.cpp
+index 758038b..9da1e04 100644
+--- a/src/citra_qt/citra_qt.cpp
++++ b/src/citra_qt/citra_qt.cpp
+@@ -46,6 +46,9 @@
+ #include "citra_qt/camera/qt_multimedia_camera.h"
+ #include "citra_qt/camera/still_image_camera.h"
+ #include "citra_qt/citra_qt.h"
++#ifdef MH4U_BACKEND
++#include "frontend.h"
++#endif
+ #include "citra_qt/compatibility_list.h"
+ #include "citra_qt/configuration/config.h"
+ #include "citra_qt/configuration/configure_dialog.h"
+@@ -925,6 +928,9 @@ void GMainWindow::InitializeHotkeys() {
+     };
+ 
+     connect_shortcut(QStringLiteral("Toggle Screen Layout"), &GMainWindow::ToggleScreenLayout);
++#ifdef MH4U_BACKEND
++    connect_shortcut(QStringLiteral("MH4U Quest Map On/Off"), [] { Port::ToggleQuestMap(); });
++#endif
+     connect_shortcut(QStringLiteral("Exit Fullscreen"), [&] {
+         if (emulation_running) {
+             if (secondary_window->isActiveWindow()) {
+@@ -1207,6 +1213,18 @@ void GMainWindow::ConnectMenuEvents() {
+ #ifdef ENABLE_FFMPEG
+     connect_menu(ui->action_Dump_Video, &GMainWindow::OnDumpVideo);
+ #endif
++#ifdef MH4U_BACKEND
++    // MH4U PC port: its options file in a text editor, made with the recommended settings
++    // when there is none yet
++    ui->menu_Tools->addSeparator();
++    connect_menu(ui->menu_Tools->addAction(tr("MH4U Port Options...")), [] {
++        const std::string path = Port::OptionsPath();
++        if (!FileUtil::Exists(path)) {
++            FileUtil::WriteStringToFile(true, path, Port::OptionsTemplate());
++        }
++        QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromStdString(path)));
++    });
++#endif
+ 
+     // Tools debug
+     connect_menu(ui->action_Debug_Pause, [this] {
+@@ -1380,6 +1398,13 @@ bool GMainWindow::LoadROM(const QString& filename) {
+         system.InsertCartridge(UISettings::values.inserted_cartridge.GetValue());
+     }
+ 
++#ifdef MH4U_BACKEND
++    LOG_INFO(Frontend, "{}", Port::PrepareBackendFor(system, filename.toStdString()));
++    if (const std::string notice = Port::BackendNotice(); !notice.empty()) {
++        // the game the port is for runs without (all of) it: say why and what to do
++        QMessageBox::information(this, tr("MH4U PC port"), QString::fromStdString(notice));
++    }
++#endif
+     const Core::System::ResultStatus result{
+         system.Load(*render_window, filename.toStdString(), secondary_window)};
+ 
+diff --git a/src/citra_qt/configuration/config.cpp b/src/citra_qt/configuration/config.cpp
+index 50edd63..f60e11a 100644
+--- a/src/citra_qt/configuration/config.cpp
++++ b/src/citra_qt/configuration/config.cpp
+@@ -96,6 +96,10 @@ const std::vector<UISettings::Shortcut> QtConfig::default_hotkeys{ {
+      {QStringLiteral("Toggle Filter Bar"),        QStringLiteral("Main Window"), {QStringLiteral("Ctrl+F"), QStringLiteral(""), Qt::ApplicationShortcut}},
+      {QStringLiteral("Toggle Per-Application Speed"),  QStringLiteral("Main Window"), {QStringLiteral("Ctrl+Z"), QStringLiteral(""), Qt::ApplicationShortcut}},
+      {QStringLiteral("Toggle Screen Layout"),     QStringLiteral("Main Window"), {QStringLiteral("F10"),    QStringLiteral(""), Qt::ApplicationShortcut}},
++#ifdef MH4U_BACKEND
++     // MH4U PC port: in quests, the touch overlay's map or the whole touch screen
++     {QStringLiteral("MH4U Quest Map On/Off"),    QStringLiteral("Main Window"), {QStringLiteral("F12"),    QStringLiteral(""), Qt::ApplicationShortcut}},
++#endif
+      {QStringLiteral("Toggle Status Bar"),        QStringLiteral("Main Window"), {QStringLiteral("Ctrl+S"), QStringLiteral(""), Qt::ApplicationShortcut}},
+      {QStringLiteral("Toggle Texture Dumping"),   QStringLiteral("Main Window"), {QStringLiteral(""),       QStringLiteral(""), Qt::ApplicationShortcut}},
+      {QStringLiteral("Toggle Turbo Mode"),        QStringLiteral("Main Window"), {QStringLiteral(""),      QStringLiteral(""), Qt::ApplicationShortcut}},
+diff --git a/src/citra_qt/multiplayer/host_room.cpp b/src/citra_qt/multiplayer/host_room.cpp
+index bd98a3d..187713b 100644
+--- a/src/citra_qt/multiplayer/host_room.cpp
++++ b/src/citra_qt/multiplayer/host_room.cpp
+@@ -60,6 +60,18 @@ HostRoomWindow::HostRoomWindow(Core::System& system_, QWidget* parent, QStandard
+     if (index < ui->host_type->count()) {
+         ui->host_type->setCurrentIndex(index);
+     }
++    // MH4U port: without a lobby server (Azahar has none of its own) a public room can't be
++    // announced and Host fails, so offer the unlisted room that others reach by Direct Connect
++    if (Settings::values.web_api_url.GetValue().empty()) {
++        if (auto* types = qobject_cast<QStandardItemModel*>(ui->host_type->model())) {
++            if (auto* item = types->item(0)) {
++                item->setEnabled(false);
++                item->setToolTip(tr("Needs a lobby server (Web API URL); others join an unlisted "
++                                    "room with Direct Connect"));
++            }
++        }
++        ui->host_type->setCurrentIndex(1);
++    }
+     index = ui->game_list->findData(UISettings::values.game_id, GameListItemPath::ProgramIdRole);
+     if (index != -1) {
+         ui->game_list->setCurrentIndex(index);
+diff --git a/src/core/core.cpp b/src/core/core.cpp
+index dc1eb15..42f4890 100644
+--- a/src/core/core.cpp
++++ b/src/core/core.cpp
+@@ -117,6 +117,10 @@ System::ResultStatus System::RunLoop(bool tight_loop) {
+         return ResultStatus::ErrorNotInitialized;
+     }
+ 
++    if (run_loop_hook) {
++        run_loop_hook();
++    }
++
+ #ifdef ENABLE_GDBSTUB
+     if (GDBStub::IsServerEnabled()) {
+         // The break flag is only set if GDB is connected,
+@@ -597,7 +601,11 @@ System::ResultStatus System::Init(Frontend::EmuWindow& emu_window,
+ 
+     exclusive_monitor = MakeExclusiveMonitor(*memory, num_cores);
+     cpu_cores.reserve(num_cores);
+-    if (Settings::values.use_cpu_jit) {
++    if (cpu_factory) {
++        for (u32 i = 0; i < num_cores; ++i) {
++            cpu_cores.push_back(cpu_factory(*this, *memory, i, timing->GetTimer(i)));
++        }
++    } else if (Settings::values.use_cpu_jit) {
+ #if CITRA_ARCH(x86_64) || CITRA_ARCH(arm64)
+         for (u32 i = 0; i < num_cores; ++i) {
+             cpu_cores.push_back(std::make_shared<ARM_Dynarmic>(
+diff --git a/src/core/core.h b/src/core/core.h
+index 5920595..bc107db 100644
+--- a/src/core/core.h
++++ b/src/core/core.h
+@@ -6,6 +6,7 @@
+ 
+ #include <atomic>
+ #include <chrono>
++#include <functional>
+ #include <memory>
+ #include <mutex>
+ #include <string>
+@@ -363,6 +364,20 @@ public:
+         return registered_image_interface;
+     }
+ 
++    /// Replaces the CPU backend chosen by the settings. Must be set before Load().
++    using CPUFactory = std::function<std::shared_ptr<ARM_Interface>(
++        System& system, Memory::MemorySystem& memory, u32 core_id,
++        std::shared_ptr<Core::Timing::Timer> timer)>;
++    void SetCPUFactory(CPUFactory factory) {
++        cpu_factory = std::move(factory);
++    }
++
++    /// Called at the start of each RunLoop on the emulation thread (the port keeps the clocks
++    /// of the consoles in a network room together there).
++    void SetRunLoopHook(std::function<void()> hook) {
++        run_loop_hook = std::move(hook);
++    }
++
+     /// Function for checking OS microphone permissions.
+     void RegisterMicPermissionCheck(const std::function<bool()>& permission_func) {
+         mic_permission_func = permission_func;
+@@ -484,6 +499,8 @@ private:
+     std::string inserted_cartridge;
+ 
+     /// ARM11 CPU core
++    CPUFactory cpu_factory;
++    std::function<void()> run_loop_hook;
+     std::vector<std::shared_ptr<ARM_Interface>> cpu_cores;
+     ARM_Interface* running_core = nullptr;
+ 
+diff --git a/src/core/file_sys/layered_fs.cpp b/src/core/file_sys/layered_fs.cpp
+index 7bcb6a4..34460df 100644
+--- a/src/core/file_sys/layered_fs.cpp
++++ b/src/core/file_sys/layered_fs.cpp
+@@ -200,7 +200,11 @@ void LayeredFS::LoadExtRelocations() {
+     FileUtil::FSTEntry result;
+     FileUtil::ScanDirectoryTree(patch_ext_path, result, 256);
+ 
+-    for (const auto& entry : result.children) {
++    // MH4U port: the files in sub-folders too (a game's archives sit in folders, e.g. MH4U's
++    // data/ and eng/data/; only the top level used to be looked at)
++    std::vector<FileUtil::FSTEntry> files;
++    FileUtil::GetAllFilesFromNestedEntries(result, files);
++    for (const auto& entry : files) {
+         if (FileUtil::IsDirectory(entry.physicalName)) {
+             continue;
+         }
+diff --git a/src/core/frontend/emu_window.cpp b/src/core/frontend/emu_window.cpp
+index 9a2d032..819a315 100644
+--- a/src/core/frontend/emu_window.cpp
++++ b/src/core/frontend/emu_window.cpp
+@@ -2,6 +2,7 @@
+ // Licensed under GPLv2 or any later version
+ // Refer to the misc/licenses/gplv2.txt file included.
+ 
++#include <algorithm>
+ #include <cmath>
+ #include <mutex>
+ #include "common/settings.h"
+@@ -27,6 +28,8 @@ public:
+     bool touch_pressed = false; ///< True if touchpad area is currently pressed, otherwise false
+     float touch_x = 0.0f;       ///< Touchpad X-position
+     float touch_y = 0.0f;       ///< Touchpad Y-position
++    /// The layout's further view of the bottom screen the touch started on, -1 the screen itself
++    int view = -1;
+ 
+ private:
+     class Device : public Input::TouchDevice {
+@@ -113,7 +116,35 @@ void EmuWindow::CreateTouchState() {
+     global_touch_state = touch_state;
+ }
+ 
++/// A touch at (x, y) in the layout's further view `view` of the bottom screen (the port's quest
++/// HUD), with the state's lock held: the point in that view's part of the bottom screen.
++static void TouchInView(EmuWindow::TouchState& state, const Layout::FramebufferLayout& layout,
++                        int view, unsigned x, unsigned y) {
++    const auto& [r, crop] = layout.bottom_views[view];
++    x = std::clamp(x, r.left, std::max(r.left, r.right - 1));
++    y = std::clamp(y, r.top, std::max(r.top, r.bottom - 1));
++    const float fx = static_cast<float>(x - r.left) / std::max(1u, r.GetWidth());
++    const float fy = static_cast<float>(y - r.top) / std::max(1u, r.GetHeight());
++    state.touch_x = crop.left + fx * (crop.right - crop.left);
++    state.touch_y = crop.top + fy * (crop.bottom - crop.top);
++    state.touch_pressed = true;
++    state.view = view;
++}
++
+ bool EmuWindow::TouchPressed(unsigned framebuffer_x, unsigned framebuffer_y) {
++    // the port's further views of parts of the bottom screen are drawn over everything else: a
++    // new touch on one is a touch on its part (a touch moving from elsewhere stays there)
++    const int view = framebuffer_layout.BottomViewAt(framebuffer_x, framebuffer_y);
++    {
++        std::scoped_lock guard(touch_state->mutex);
++        if (view >= 0 && (!touch_state->touch_pressed || touch_state->view >= 0)) {
++            TouchInView(*touch_state, framebuffer_layout, view, framebuffer_x, framebuffer_y);
++            return true;
++        }
++        if (framebuffer_layout.IsWithinTouchscreen(framebuffer_x, framebuffer_y)) {
++            touch_state->view = -1;
++        }
++    }
+     if (!framebuffer_layout.IsWithinTouchscreen(framebuffer_x, framebuffer_y))
+         return false;
+     Settings::StereoRenderOption render_3d_mode = get3DMode();
+@@ -148,6 +179,11 @@ bool EmuWindow::TouchPressed(unsigned framebuffer_x, unsigned framebuffer_y) {
+         touch_state->touch_x = 1.f - touch_state->touch_x;
+     }
+ 
++    // a bottom screen showing only part of itself (the port's touch-screen overlay)
++    const auto& crop = framebuffer_layout.bottom_crop;
++    touch_state->touch_x = crop.left + touch_state->touch_x * (crop.right - crop.left);
++    touch_state->touch_y = crop.top + touch_state->touch_y * (crop.bottom - crop.top);
++
+     touch_state->touch_pressed = true;
+     return true;
+ }
+@@ -157,12 +193,25 @@ void EmuWindow::TouchReleased() {
+     touch_state->touch_pressed = false;
+     touch_state->touch_x = 0;
+     touch_state->touch_y = 0;
++    touch_state->view = -1;
+ }
+ 
+ void EmuWindow::TouchMoved(unsigned framebuffer_x, unsigned framebuffer_y) {
+     if (!touch_state->touch_pressed)
+         return;
+ 
++    {
++        // a touch that started on one of the port's further views stays on it
++        std::scoped_lock guard(touch_state->mutex);
++        const int view = touch_state->view;
++        if (view >= 0) {
++            if (static_cast<u32>(view) < framebuffer_layout.bottom_view_count) {
++                TouchInView(*touch_state, framebuffer_layout, view, framebuffer_x, framebuffer_y);
++            }
++            return;
++        }
++    }
++
+     if (!framebuffer_layout.IsWithinTouchscreen(framebuffer_x, framebuffer_y))
+         std::tie(framebuffer_x, framebuffer_y) = ClipToTouchScreen(framebuffer_x, framebuffer_y);
+ 
+diff --git a/src/core/frontend/framebuffer_layout.cpp b/src/core/frontend/framebuffer_layout.cpp
+index 1ed74f1..1138cb5 100644
+--- a/src/core/frontend/framebuffer_layout.cpp
++++ b/src/core/frontend/framebuffer_layout.cpp
+@@ -2,23 +2,68 @@
+ // Licensed under GPLv2 or any later version
+ // Refer to the misc/licenses/gplv2.txt file included.
+ 
++#include <algorithm>
++#include <atomic>
+ #include <cmath>
++#include <mutex>
+ 
+ #include "common/assert.h"
+ #include "common/settings.h"
+ #include "core/3ds.h"
+ #include "core/frontend/framebuffer_layout.h"
++#include "core/frontend/top_screen.h"
+ 
+ namespace Layout {
+ 
+-static constexpr float TOP_SCREEN_ASPECT_RATIO =
+-    static_cast<float>(Core::kScreenTopHeight) / Core::kScreenTopWidth;
++namespace {
++std::atomic<u32> top_screen_width{Core::kScreenTopWidth};
++std::mutex overlay_mutex;
++ScreenOverlay screen_overlay;
++} // Anonymous namespace
++
++ScreenOverlay GetScreenOverlay() {
++    std::scoped_lock lock{overlay_mutex};
++    return screen_overlay;
++}
++
++void SetScreenOverlay(const ScreenOverlay& overlay) {
++    std::scoped_lock lock{overlay_mutex};
++    screen_overlay = overlay;
++    screen_overlay.height = std::clamp(overlay.height, 0.0f, 1.0f);
++    screen_overlay.opacity = std::clamp(overlay.opacity, 0.0f, 1.0f);
++    // a crop of at least 1% each way, inside the screen
++    screen_overlay.crop_left = std::clamp(overlay.crop_left, 0.0f, 0.99f);
++    screen_overlay.crop_top = std::clamp(overlay.crop_top, 0.0f, 0.99f);
++    screen_overlay.crop_right = std::clamp(overlay.crop_right, screen_overlay.crop_left + 0.01f, 1.0f);
++    screen_overlay.crop_bottom = std::clamp(overlay.crop_bottom, screen_overlay.crop_top + 0.01f, 1.0f);
++    for (auto& view : screen_overlay.views) {
++        view.height = std::clamp(view.height, 0.0f, 1.0f);
++        view.x = std::clamp(view.x, 0.0f, 1.0f);
++        view.y = std::clamp(view.y, 0.0f, 1.0f);
++        view.crop_left = std::clamp(view.crop_left, 0.0f, 0.99f);
++        view.crop_top = std::clamp(view.crop_top, 0.0f, 0.99f);
++        view.crop_right = std::clamp(view.crop_right, view.crop_left + 0.01f, 1.0f);
++        view.crop_bottom = std::clamp(view.crop_bottom, view.crop_top + 0.01f, 1.0f);
++    }
++}
++
++u32 TopScreenWidth() {
++    return top_screen_width.load(std::memory_order_relaxed);
++}
++
++void SetTopScreenWidth(u32 width) {
++    top_screen_width.store(width ? width : Core::kScreenTopWidth, std::memory_order_relaxed);
++}
++
++static float TopScreenAspectRatio() {
++    return static_cast<float>(Core::kScreenTopHeight) / TopScreenWidth();
++}
+ static constexpr float BOT_SCREEN_ASPECT_RATIO =
+     static_cast<float>(Core::kScreenBottomHeight) / Core::kScreenBottomWidth;
+ 
+ u32 FramebufferLayout::GetScalingRatio() const {
+     if (is_rotated) {
+-        return static_cast<u32>(((top_screen.GetWidth() - 1) / Core::kScreenTopWidth) + 1);
++        return static_cast<u32>(((top_screen.GetWidth() - 1) / TopScreenWidth()) + 1);
+     } else {
+         return static_cast<u32>(((top_screen.GetWidth() - 1) / Core::kScreenTopHeight) + 1);
+     }
+@@ -132,7 +177,7 @@ FramebufferLayout SingleFrameLayout(u32 width, u32 height, bool swapped, bool up
+     FramebufferLayout res{width, height, !swapped, swapped, {}, {}, !upright};
+ 
+     Common::Rectangle<u32> screen_window_area{0, 0, width, height};
+-    Common::Rectangle<u32> top_screen{0, 0, Core::kScreenTopWidth, Core::kScreenTopHeight};
++    Common::Rectangle<u32> top_screen{0, 0, TopScreenWidth(), Core::kScreenTopHeight};
+     Common::Rectangle<u32> bot_screen{0, 0, Core::kScreenBottomWidth, Core::kScreenBottomHeight};
+ 
+     const float window_aspect_ratio = static_cast<float>(height) / static_cast<float>(width);
+@@ -202,8 +247,8 @@ FramebufferLayout LargeFrameLayout(u32 width, u32 height, bool swapped, bool upr
+     u32 large_height = swapped ? Core::kScreenBottomHeight : Core::kScreenTopHeight;
+     u32 small_height = static_cast<u32>(swapped ? Core::kScreenTopHeight / scale_factor
+                                                 : Core::kScreenBottomHeight / scale_factor);
+-    u32 large_width = swapped ? Core::kScreenBottomWidth : Core::kScreenTopWidth;
+-    u32 small_width = static_cast<u32>(swapped ? Core::kScreenTopWidth / scale_factor
++    u32 large_width = swapped ? Core::kScreenBottomWidth : TopScreenWidth();
++    u32 small_width = static_cast<u32>(swapped ? TopScreenWidth() / scale_factor
+                                                : Core::kScreenBottomWidth / scale_factor);
+ 
+     u32 emulation_width;
+@@ -371,9 +416,117 @@ FramebufferLayout AndroidSecondaryLayout(u32 width, u32 height) {
+     }
+ }
+ 
++static_assert(ScreenOverlay::MAX_VIEWS ==
++              std::tuple_size_v<decltype(FramebufferLayout::bottom_views)>);
++
++int FramebufferLayout::BottomViewAt(unsigned framebuffer_x, unsigned framebuffer_y) const {
++    if (!bottom_screen_enabled) {
++        return -1;
++    }
++    const auto count = std::min<std::size_t>(bottom_view_count, bottom_views.size());
++    for (int i = static_cast<int>(count) - 1; i >= 0; --i) {
++        const auto& r = bottom_views[i].screen;
++        if (framebuffer_x >= r.left && framebuffer_x < r.right && framebuffer_y >= r.top &&
++            framebuffer_y < r.bottom) {
++            return i;
++        }
++    }
++    return -1;
++}
++
++/// The size in pixels of the part `crop` of the bottom screen.
++static Common::Rectangle<u32> BottomPart(const Common::Rectangle<float>& crop) {
++    return {0, 0,
++            std::max(1u, static_cast<u32>(
++                             std::lround(Core::kScreenBottomWidth * (crop.right - crop.left)))),
++            std::max(1u, static_cast<u32>(
++                             std::lround(Core::kScreenBottomHeight * (crop.bottom - crop.top))))};
++}
++
++/// A screen, or a part of one (`shape`: its size), `fraction` times the window's height at its
++/// aspect ratio, placed at (x, y): fractions of the room the window leaves beside and above it.
++static Common::Rectangle<u32> PlaceInWindow(u32 width, u32 height,
++                                            const Common::Rectangle<u32>& shape, float fraction,
++                                            float x, float y) {
++    const u32 h = std::min(height, std::max(1u, static_cast<u32>(std::lround(height * fraction))));
++    const u32 w = std::min(width, std::max(1u, h * shape.GetWidth() / shape.GetHeight()));
++    const u32 left = static_cast<u32>(std::lround(std::clamp(x, 0.0f, 1.0f) * (width - w)));
++    const u32 top = static_cast<u32>(std::lround(std::clamp(y, 0.0f, 1.0f) * (height - h)));
++    return {left, top, left + w, top + h};
++}
++
++/// The custom layout with a screen overlay (see SetScreenOverlay): the main screen as large as
++/// the window allows at its aspect ratio, centred, and the other one over it in a corner (or
++/// where the overlay places it), with the overlay's further views of the bottom screen.
++static FramebufferLayout OverlayFrameLayout(u32 width, u32 height, bool is_swapped,
++                                            const ScreenOverlay& overlay) {
++    const bool upright = Settings::values.upright_screen.GetValue();
++    if (upright) {
++        std::swap(width, height);
++    }
++    FramebufferLayout res{width, height, true, true, {}, {}, !upright, false};
++    const Common::Rectangle<u32> top{0, 0, TopScreenWidth(), Core::kScreenTopHeight};
++    const Common::Rectangle<u32> bottom{0, 0, Core::kScreenBottomWidth,
++                                        Core::kScreenBottomHeight};
++    // the crop applies to the bottom screen in the corner, in landscape orientation
++    const bool cropped = !is_swapped && !upright;
++    const Common::Rectangle<float> crop =
++        cropped ? Common::Rectangle<float>{overlay.crop_left, overlay.crop_top, overlay.crop_right,
++                                           overlay.crop_bottom}
++                : Common::Rectangle<float>{0.0f, 0.0f, 1.0f, 1.0f};
++    const Common::Rectangle<u32> bottom_part = BottomPart(crop);
++    const auto& main = is_swapped ? bottom : top;
++    const auto& small = is_swapped ? top : bottom_part;
++
++    Common::Rectangle<u32> big = MaxRectangle(Common::Rectangle<u32>{0, 0, width, height}, main);
++    big = big.TranslateX((width - big.GetWidth()) / 2).TranslateY((height - big.GetHeight()) / 2);
++
++    using Corner = ScreenOverlay::Corner;
++    const bool placed = overlay.x >= 0.0f && overlay.y >= 0.0f;
++    const bool left = overlay.corner == Corner::TopLeft || overlay.corner == Corner::BottomLeft;
++    const bool up = overlay.corner == Corner::TopLeft || overlay.corner == Corner::TopRight;
++    const float x = placed ? overlay.x : left ? 0.0f : 1.0f;
++    const float y = placed ? overlay.y : up ? 0.0f : 1.0f;
++    const Common::Rectangle<u32> corner = PlaceInWindow(width, height, small, overlay.height, x, y);
++
++    res.top_screen = is_swapped ? corner : big;
++    res.bottom_screen = is_swapped ? big : corner;
++    res.bottom_crop = crop;
++    if (cropped) {
++        // further parts of the bottom screen, each where it is placed
++        for (const auto& view : overlay.views) {
++            if (view.height <= 0.0f || res.bottom_view_count >= res.bottom_views.size()) {
++                continue;
++            }
++            const Common::Rectangle<float> part{view.crop_left, view.crop_top, view.crop_right,
++                                                view.crop_bottom};
++            res.bottom_views[res.bottom_view_count++] = {
++                PlaceInWindow(width, height, BottomPart(part), view.height, view.x, view.y), part};
++        }
++    }
++    (is_swapped ? res.top_opacity : res.bottom_opacity) = overlay.opacity;
++    return upright ? reverseLayout(res) : res;
++}
++
++Common::Rectangle<float> CropLandscapeTexcoords(const Common::Rectangle<float>& texcoords,
++                                                const Common::Rectangle<float>& crop) {
++    // landscape drawing: the screen's x runs left -> right, its y runs bottom -> top
++    const float u = texcoords.right - texcoords.left;
++    const float v = texcoords.top - texcoords.bottom;
++    Common::Rectangle<float> res;
++    res.left = texcoords.left + u * crop.left;
++    res.right = texcoords.left + u * crop.right;
++    res.bottom = texcoords.bottom + v * crop.top;
++    res.top = texcoords.bottom + v * crop.bottom;
++    return res;
++}
++
+ FramebufferLayout CustomFrameLayout(u32 width, u32 height, bool is_swapped, bool is_portrait_mode) {
+     ASSERT(width > 0);
+     ASSERT(height > 0);
++    if (const auto overlay = GetScreenOverlay(); overlay.height > 0.0f && !is_portrait_mode) {
++        return OverlayFrameLayout(width, height, is_swapped, overlay);
++    }
+     const bool upright = Settings::values.upright_screen.GetValue();
+     if (upright) {
+         std::swap(width, height);
+@@ -447,7 +600,7 @@ FramebufferLayout FrameLayoutFromResolutionScale(u32 res_scale, bool is_secondar
+ 
+             break;
+         case Settings::PortraitLayoutOption::PortraitTopFullWidth:
+-            width = Core::kScreenTopWidth * res_scale;
++            width = TopScreenWidth() * res_scale;
+             // clang-format off
+             height = (static_cast<int>(Core::kScreenTopHeight + Core::kScreenBottomHeight * 1.25) *
+                      res_scale) + gap;
+@@ -457,7 +610,7 @@ FramebufferLayout FrameLayoutFromResolutionScale(u32 res_scale, bool is_secondar
+                                            Settings::values.upright_screen.GetValue());
+             break;
+         case Settings::PortraitLayoutOption::PortraitOriginal:
+-            width = Core::kScreenTopWidth * res_scale;
++            width = TopScreenWidth() * res_scale;
+             height = (Core::kScreenTopHeight + Core::kScreenBottomHeight) * res_scale;
+             layout = PortraitOriginalLayout(width, height, Settings::values.swap_screen.GetValue());
+             break;
+@@ -466,6 +619,16 @@ FramebufferLayout FrameLayoutFromResolutionScale(u32 res_scale, bool is_secondar
+         auto layout_option = Settings::values.layout_option.GetValue();
+         switch (layout_option) {
+         case Settings::LayoutOption::CustomLayout:
++            if (GetScreenOverlay().height > 0.0f) {
++                const bool swapped = Settings::values.swap_screen.GetValue();
++                width = (swapped ? Core::kScreenBottomWidth : TopScreenWidth()) * res_scale;
++                height = (swapped ? Core::kScreenBottomHeight : Core::kScreenTopHeight) * res_scale;
++                if (Settings::values.upright_screen.GetValue()) {
++                    std::swap(width, height);
++                }
++                layout = CustomFrameLayout(width, height, swapped, is_portrait);
++                break;
++            }
+             layout =
+                 CustomFrameLayout(std::max(Settings::values.custom_top_x.GetValue() +
+                                                Settings::values.custom_top_width.GetValue(),
+@@ -483,7 +646,7 @@ FramebufferLayout FrameLayoutFromResolutionScale(u32 res_scale, bool is_secondar
+                 width = Core::kScreenBottomWidth * res_scale;
+                 height = Core::kScreenBottomHeight * res_scale;
+             } else {
+-                width = Core::kScreenTopWidth * res_scale;
++                width = TopScreenWidth() * res_scale;
+                 height = Core::kScreenTopHeight * res_scale;
+             }
+             if (Settings::values.upright_screen.GetValue()) {
+@@ -497,10 +660,10 @@ FramebufferLayout FrameLayoutFromResolutionScale(u32 res_scale, bool is_secondar
+ 
+         case Settings::LayoutOption::LargeScreen: {
+             const bool swapped = Settings::values.swap_screen.GetValue();
+-            const int largeWidth = swapped ? Core::kScreenBottomWidth : Core::kScreenTopWidth;
++            const int largeWidth = swapped ? Core::kScreenBottomWidth : TopScreenWidth();
+             const int largeHeight = swapped ? Core::kScreenBottomHeight : Core::kScreenTopHeight;
+             const int smallWidth =
+-                static_cast<int>((swapped ? Core::kScreenTopWidth : Core::kScreenBottomWidth) /
++                static_cast<int>((swapped ? TopScreenWidth() : Core::kScreenBottomWidth) /
+                                  Settings::values.large_screen_proportion.GetValue());
+             const int smallHeight =
+                 static_cast<int>((swapped ? Core::kScreenTopHeight : Core::kScreenBottomHeight) /
+@@ -528,7 +691,7 @@ FramebufferLayout FrameLayoutFromResolutionScale(u32 res_scale, bool is_secondar
+             break;
+         }
+         case Settings::LayoutOption::SideScreen:
+-            width = (Core::kScreenTopWidth + Core::kScreenBottomWidth) * res_scale + gap;
++            width = (TopScreenWidth() + Core::kScreenBottomWidth) * res_scale + gap;
+             height = Core::kScreenTopHeight * res_scale;
+ 
+             if (Settings::values.upright_screen.GetValue()) {
+@@ -544,10 +707,10 @@ FramebufferLayout FrameLayoutFromResolutionScale(u32 res_scale, bool is_secondar
+             if (Settings::values.swap_screen.GetValue()) {
+                 width = Core::kScreenBottomWidth;
+             } else {
+-                width = Core::kScreenTopWidth;
++                width = TopScreenWidth();
+             }
+             // 2.25f comes from HybridScreenLayout's scale_factor value.
+-            width = static_cast<int>((width + (Core::kScreenTopWidth / 2.25f)) * res_scale);
++            width = static_cast<int>((width + (TopScreenWidth() / 2.25f)) * res_scale);
+ 
+             if (Settings::values.upright_screen.GetValue()) {
+                 std::swap(width, height);
+@@ -558,7 +721,7 @@ FramebufferLayout FrameLayoutFromResolutionScale(u32 res_scale, bool is_secondar
+             break;
+         case Settings::LayoutOption::Default:
+         default:
+-            width = Core::kScreenTopWidth * res_scale;
++            width = TopScreenWidth() * res_scale;
+             height = (Core::kScreenTopHeight + Core::kScreenBottomHeight) * res_scale + gap;
+ 
+             if (Settings::values.upright_screen.GetValue()) {
+@@ -695,7 +858,7 @@ FramebufferLayout reverseLayout(FramebufferLayout layout) {
+ }
+ 
+ std::pair<unsigned, unsigned> GetMinimumSizeFromPortraitLayout() {
+-    const u32 min_width = Core::kScreenTopWidth;
++    const u32 min_width = TopScreenWidth();
+     const u32 min_height = Core::kScreenTopHeight + Core::kScreenBottomHeight;
+     return std::make_pair(min_width, min_height);
+ }
+@@ -704,19 +867,22 @@ std::pair<unsigned, unsigned> GetMinimumSizeFromLayout(Settings::LayoutOption la
+                                                        bool upright_screen) {
+     u32 min_width, min_height;
+ 
++    if (layout == Settings::LayoutOption::CustomLayout && GetScreenOverlay().height > 0.0f) {
++        layout = Settings::LayoutOption::SingleScreen; // one screen fills the window
++    }
+     switch (layout) {
+     case Settings::LayoutOption::SingleScreen:
+ #ifndef ANDROID
+     case Settings::LayoutOption::SeparateWindows:
+ #endif
+-        min_width = Settings::values.swap_screen ? Core::kScreenBottomWidth : Core::kScreenTopWidth;
++        min_width = Settings::values.swap_screen ? Core::kScreenBottomWidth : TopScreenWidth();
+         min_height = Core::kScreenBottomHeight;
+         break;
+     case Settings::LayoutOption::LargeScreen: {
+         const bool swapped = Settings::values.swap_screen.GetValue();
+-        const int largeWidth = swapped ? Core::kScreenBottomWidth : Core::kScreenTopWidth;
++        const int largeWidth = swapped ? Core::kScreenBottomWidth : TopScreenWidth();
+         const int largeHeight = swapped ? Core::kScreenBottomHeight : Core::kScreenTopHeight;
+-        int smallWidth = swapped ? Core::kScreenTopWidth : Core::kScreenBottomWidth;
++        int smallWidth = swapped ? TopScreenWidth() : Core::kScreenBottomWidth;
+         int smallHeight = swapped ? Core::kScreenTopHeight : Core::kScreenBottomHeight;
+         smallWidth =
+             static_cast<int>(smallWidth / Settings::values.large_screen_proportion.GetValue());
+@@ -737,12 +903,12 @@ std::pair<unsigned, unsigned> GetMinimumSizeFromLayout(Settings::LayoutOption la
+         break;
+     }
+     case Settings::LayoutOption::SideScreen:
+-        min_width = Core::kScreenTopWidth + Core::kScreenBottomWidth;
++        min_width = TopScreenWidth() + Core::kScreenBottomWidth;
+         min_height = Core::kScreenBottomHeight;
+         break;
+     case Settings::LayoutOption::Default:
+     default:
+-        min_width = Core::kScreenTopWidth;
++        min_width = TopScreenWidth();
+         min_height = Core::kScreenTopHeight + Core::kScreenBottomHeight;
+         break;
+     }
+diff --git a/src/core/frontend/framebuffer_layout.h b/src/core/frontend/framebuffer_layout.h
+index 1ecc56f..7397e87 100644
+--- a/src/core/frontend/framebuffer_layout.h
++++ b/src/core/frontend/framebuffer_layout.h
+@@ -4,6 +4,8 @@
+ 
+ #pragma once
+ 
++#include <array>
++
+ #include "common/math_util.h"
+ #include "common/settings.h"
+ 
+@@ -41,6 +43,20 @@ struct FramebufferLayout {
+     bool additional_screen_is_bottom = false;
+     Common::Rectangle<u32> additional_screen;
+     CardboardSettings cardboard;
++    /// The part of the bottom screen shown in bottom_screen, in fractions of its width and
++    /// height (the port's touch-screen overlay can show just a part)
++    Common::Rectangle<float> bottom_crop{0.0f, 0.0f, 1.0f, 1.0f};
++    /// Further parts of the bottom screen drawn on their own after it, over the other screens
++    /// (the port's quest HUD; landscape only): where, and which part (as bottom_crop)
++    struct BottomView {
++        Common::Rectangle<u32> screen;
++        Common::Rectangle<float> crop{0.0f, 0.0f, 1.0f, 1.0f};
++    };
++    std::array<BottomView, 2> bottom_views{};
++    u32 bottom_view_count = 0;
++
++    /// The bottom view under (framebuffer_x, framebuffer_y), the last drawn first, or -1
++    int BottomViewAt(unsigned framebuffer_x, unsigned framebuffer_y) const;
+ 
+     /**
+      * Returns the ratio of pixel size of the top screen, compared to the native size of the 3DS
+@@ -62,6 +78,14 @@ struct FramebufferLayout {
+     Settings::StereoRenderOption render_3d_mode = Settings::values.render_3d.GetValue();
+ };
+ 
++/**
++ * Texture coordinates of a screen as the renderers draw it in landscape orientation (x across
++ * left..right, y down bottom..top), cut down to `crop` (fractions of the screen, as in
++ * FramebufferLayout::bottom_crop)
++ */
++Common::Rectangle<float> CropLandscapeTexcoords(const Common::Rectangle<float>& texcoords,
++                                                const Common::Rectangle<float>& crop);
++
+ /**
+  * Method to create a rotated copy of a framebuffer layout, used to rotate to upright mode
+  */
+diff --git a/src/core/frontend/top_screen.h b/src/core/frontend/top_screen.h
+new file mode 100644
+index 0000000..e9418e0
+--- /dev/null
++++ b/src/core/frontend/top_screen.h
+@@ -0,0 +1,51 @@
++// Copyright 2026 Azahar Emulator Project
++// Licensed under GPLv2 or any later version
++// Refer to the misc/licenses/gplv2.txt file included.
++
++#pragma once
++
++#include <array>
++#include <cstddef>
++
++#include "common/common_types.h"
++
++namespace Layout {
++
++/// The width the screen layouts give the top screen at its 240-pixel height: 400, as on a
++/// 3DS, unless a port that shows the top screen wider sets another (427 for 16:9, say).
++u32 TopScreenWidth();
++void SetTopScreenWidth(u32 width);
++
++/// The custom layout as a port can set it up instead of fixed positions: the main screen
++/// fills the window at its aspect ratio and the other one is drawn over it in a corner,
++/// `height` times the window's height (0: off, the custom layout's own positions apply).
++/// When the bottom screen is the one in the corner, it can show just a part of it: the crop
++/// rectangle, in fractions of the bottom screen's width and height (touches map to that part).
++struct ScreenOverlay {
++    enum class Corner : u8 { TopLeft, TopRight, BottomLeft, BottomRight };
++    float height = 0.0f;
++    float opacity = 1.0f;
++    Corner corner = Corner::BottomRight;
++    float crop_left = 0.0f, crop_top = 0.0f, crop_right = 1.0f, crop_bottom = 1.0f;
++    /// A place in the window instead of the corner, when both are 0..1 (negative: the corner):
++    /// where the overlay's left and top edges go in the room the window leaves beside and above
++    /// it, 0 at the window's left (top) edge, 1 with its right (bottom) edge at the window's. So
++    /// it stays in the window at any size; (1, 0) is the top-right corner.
++    float x = -1.0f, y = -1.0f;
++
++    /// Further parts of the bottom screen drawn on their own over the main screen, at the same
++    /// opacity (the port's quest HUD: the target camera panel beside the map). Only while the
++    /// bottom screen is the one in the corner, in landscape orientation. A touch on one maps to
++    /// its part of the bottom screen.
++    struct View {
++        float height = 0.0f; ///< times the window's height; 0: off
++        float x = 1.0f, y = 0.0f; ///< as ScreenOverlay::x, y (0..1)
++        float crop_left = 0.0f, crop_top = 0.0f, crop_right = 1.0f, crop_bottom = 1.0f;
++    };
++    static constexpr std::size_t MAX_VIEWS = 2;
++    std::array<View, MAX_VIEWS> views{};
++};
++ScreenOverlay GetScreenOverlay();
++void SetScreenOverlay(const ScreenOverlay& overlay);
++
++} // namespace Layout
+diff --git a/src/core/hle/kernel/svc.cpp b/src/core/hle/kernel/svc.cpp
+index 87b2c5e..5ae478e 100644
+--- a/src/core/hle/kernel/svc.cpp
++++ b/src/core/hle/kernel/svc.cpp
+@@ -2436,8 +2436,17 @@ const SVC::FunctionDef* SVC::GetSVCInfo(u32 func_num) {
+ 
+ MICROPROFILE_DEFINE(Kernel_SVC, "Kernel", "SVC", MP_RGB(70, 200, 70));
+ 
++static SVCObserver svc_observer = nullptr;
++
++void SetSVCObserver(SVCObserver observer) {
++    svc_observer = observer;
++}
++
+ void SVC::CallSVC(u32 immediate) {
+     MICROPROFILE_SCOPE(Kernel_SVC);
++    if (svc_observer) {
++        svc_observer(system, immediate);
++    }
+     system.perf_stats->BeginSVCProcessing();
+ 
+     // Lock the kernel mutex when we enter the kernel HLE.
+diff --git a/src/core/hle/kernel/svc.h b/src/core/hle/kernel/svc.h
+index d26f80e..f7806e7 100644
+--- a/src/core/hle/kernel/svc.h
++++ b/src/core/hle/kernel/svc.h
+@@ -29,6 +29,11 @@ private:
+ class SVC_SyncCallback;
+ class SVC_IPCCallback;
+ 
++/// Optional observer of every system call (called before it runs, with the calling CPU's
++/// registers available through the system), e.g. to compare traces of two CPU backends.
++using SVCObserver = void (*)(Core::System& system, u32 immediate);
++void SetSVCObserver(SVCObserver observer);
++
+ } // namespace Kernel
+ 
+ BOOST_CLASS_EXPORT_KEY(Kernel::SVC_SyncCallback)
+diff --git a/src/core/hle/service/fs/file.cpp b/src/core/hle/service/fs/file.cpp
+index c1c947b..4bb8624 100644
+--- a/src/core/hle/service/fs/file.cpp
++++ b/src/core/hle/service/fs/file.cpp
+@@ -5,6 +5,7 @@
+ #include <algorithm>
+ #include <boost/serialization/unique_ptr.hpp>
+ #include "common/archives.h"
++#include "common/settings.h"
+ #include "common/logging/log.h"
+ #include "core/core.h"
+ #include "core/file_sys/errors.h"
+@@ -144,7 +145,8 @@ void File::Read(Kernel::HLERequestContext& ctx) {
+             }
+ 
+             const auto read_delay = static_cast<s64>(backend->GetReadDelayNs(async_data->length));
+-            if (!async_data->cache_ready) {
++            // with deterministic async operations, the emulated delay can't depend on the host
++            if (!async_data->cache_ready && !Settings::values.deterministic_async_operations) {
+                 const auto time_took = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                            std::chrono::steady_clock::now() - async_data->pre_timer)
+                                            .count();
+diff --git a/src/core/hle/service/fs/fs_user.cpp b/src/core/hle/service/fs/fs_user.cpp
+index e9fb0c2..9643823 100644
+--- a/src/core/hle/service/fs/fs_user.cpp
++++ b/src/core/hle/service/fs/fs_user.cpp
+@@ -106,8 +106,12 @@ void FS_USER::OpenFile(Kernel::HLERequestContext& ctx) {
+             async_data->file =
+                 archives.OpenFileFromArchive(async_data->archive_handle, async_data->file_path,
+                                              async_data->mode, async_data->attributes);
+-            const auto time_took = std::chrono::duration_cast<std::chrono::nanoseconds>(
+-                std::chrono::steady_clock::now() - async_data->pre_timer);
++            // with deterministic async operations, the emulated delay can't depend on the host
++            const auto time_took =
++                Settings::values.deterministic_async_operations
++                    ? std::chrono::nanoseconds()
++                    : std::chrono::duration_cast<std::chrono::nanoseconds>(
++                          std::chrono::steady_clock::now() - async_data->pre_timer);
+             return static_cast<s64>(((async_data->file.second > time_took)
+                                          ? (async_data->file.second - time_took)
+                                          : std::chrono::nanoseconds())
+@@ -219,8 +223,12 @@ void FS_USER::OpenFileDirectly(Kernel::HLERequestContext& ctx) {
+                 archives.OpenFileFromArchive(*async_data->archive_handle, async_data->file_path,
+                                              async_data->mode, async_data->attributes);
+             archives.CloseArchive(*async_data->archive_handle);
+-            const auto time_took = std::chrono::duration_cast<std::chrono::nanoseconds>(
+-                std::chrono::steady_clock::now() - async_data->pre_timer);
++            // with deterministic async operations, the emulated delay can't depend on the host
++            const auto time_took =
++                Settings::values.deterministic_async_operations
++                    ? std::chrono::nanoseconds()
++                    : std::chrono::duration_cast<std::chrono::nanoseconds>(
++                          std::chrono::steady_clock::now() - async_data->pre_timer);
+             return static_cast<s64>(((async_data->file.second > time_took)
+                                          ? (async_data->file.second - time_took)
+                                          : std::chrono::nanoseconds())
+diff --git a/src/core/hle/service/nwm/nwm_uds.cpp b/src/core/hle/service/nwm/nwm_uds.cpp
+index f6fafdd..837081a 100644
+--- a/src/core/hle/service/nwm/nwm_uds.cpp
++++ b/src/core/hle/service/nwm/nwm_uds.cpp
+@@ -277,6 +277,18 @@ void NWM_UDS::HandleEAPoLPacket(const Network::WifiPacket& packet) {
+     } else if (connection_status.status == NetworkStatus::Connecting) {
+         auto logoff = ParseEAPoLLogoffFrame(packet.data);
+ 
++        // The host broadcasts the logoff that gives a joining console its node id, so a
++        // console that joins at the same time as another sees both: take only the one for
++        // this console, or two consoles end up with the same node id and the game drops one.
++        // (A host that doesn't fill in the address sends zeros: take those as before.)
++        if (logoff.client_mac_address != MacAddress{}) {
++            const auto room_member = Network::GetRoomMember().lock();
++            if (room_member && logoff.client_mac_address != room_member->GetMacAddress()) {
++                LOG_DEBUG(Service_NWM, "Ignored an EAPoL-Logoff for another console");
++                return;
++            }
++        }
++
+         network_info.host_mac_address = packet.transmitter_address;
+         network_info.total_nodes = logoff.connected_nodes;
+         network_info.max_nodes = logoff.max_nodes;
+diff --git a/src/core/hle/service/nwm/uds_data.cpp b/src/core/hle/service/nwm/uds_data.cpp
+index 1d66da3..0a0f608 100644
+--- a/src/core/hle/service/nwm/uds_data.cpp
++++ b/src/core/hle/service/nwm/uds_data.cpp
+@@ -346,6 +346,8 @@ std::vector<u8> GenerateEAPoLLogoffFrame(const MacAddress& mac_address, u16 netw
+                                          const NodeList& nodes, u8 max_nodes, u8 total_nodes) {
+     EAPoLLogoffPacket eapol_logoff{};
+     eapol_logoff.assigned_node_id = network_node_id;
++    // the console the node id is for: the packet goes to every member (see HandleEAPoLPacket)
++    eapol_logoff.client_mac_address = mac_address;
+     eapol_logoff.connected_nodes = total_nodes;
+     eapol_logoff.max_nodes = max_nodes;
+ 
+diff --git a/src/core/memory.cpp b/src/core/memory.cpp
+index c1dbbd0..49745de 100644
+--- a/src/core/memory.cpp
++++ b/src/core/memory.cpp
+@@ -892,11 +892,11 @@ std::string MemorySystem::ReadCString(VAddr vaddr, std::size_t max_length) {
+ }
+ 
+ MemorySystem::PhysMemRegionInfo MemorySystem::GetPhysMemRegionInfo(PAddr address) {
+-    if (address >= phys_mem_region_info_cache.region_start &&
+-        address < phys_mem_region_info_cache.region_end) {
+-        return phys_mem_region_info_cache;
+-    }
+-
++    // No last-region cache here: the software renderer's worker threads look up physical
++    // memory concurrently with the emulation thread, and a shared cache gets torn (a VRAM
++    // address paired with FCRAM's backing memory, say), which sends texture reads gigabytes
++    // past the end of the memory.
++    PhysMemRegionInfo info{};
+     constexpr std::array memory_areas = {
+         std::make_pair(VRAM_PADDR, VRAM_SIZE),
+         std::make_pair(DSP_RAM_PADDR, DSP_RAM_SIZE),
+@@ -913,28 +913,27 @@ MemorySystem::PhysMemRegionInfo MemorySystem::GetPhysMemRegionInfo(PAddr address
+     if (area == memory_areas.end()) [[unlikely]] {
+         LOG_ERROR(HW_Memory, "Unknown GetPhysMemRegionInfo @ {:#08X} at PC {:#08X}", address,
+                   impl->GetPC());
+-        phys_mem_region_info_cache = PhysMemRegionInfo();
+-        return phys_mem_region_info_cache;
++        return info;
+     }
+ 
+     switch (area->first) {
+     case VRAM_PADDR:
+-        phys_mem_region_info_cache = {&impl->vram_mem, area->first, area->second};
++        info = {&impl->vram_mem, area->first, area->second};
+         break;
+     case DSP_RAM_PADDR:
+-        phys_mem_region_info_cache = {&impl->dsp_mem, area->first, area->second};
++        info = {&impl->dsp_mem, area->first, area->second};
+         break;
+     case FCRAM_PADDR:
+-        phys_mem_region_info_cache = {&impl->fcram_mem, area->first, area->second};
++        info = {&impl->fcram_mem, area->first, area->second};
+         break;
+     case N3DS_EXTRA_RAM_PADDR:
+-        phys_mem_region_info_cache = {&impl->n3ds_extra_ram_mem, area->first, area->second};
++        info = {&impl->n3ds_extra_ram_mem, area->first, area->second};
+         break;
+     default:
+         UNREACHABLE();
+     }
+ 
+-    return phys_mem_region_info_cache;
++    return info;
+ }
+ 
+ u8* MemorySystem::GetPhysicalPointer(PAddr address) {
+diff --git a/src/core/savestate.cpp b/src/core/savestate.cpp
+index e065efd..66a3a28 100644
+--- a/src/core/savestate.cpp
++++ b/src/core/savestate.cpp
+@@ -146,6 +146,12 @@ SaveStateInfo GetSaveStateInfo(u64 program_id, u64 movie_id, u32 slot) {
+ }
+ 
+ void System::SaveState(u32 slot) const {
++    if (cpu_factory) {
++        // A recompiled-code CPU keeps each guest thread's call chain on host stacks, which a
++        // save state can't capture or restore.
++        throw std::runtime_error("Save states aren't available with the recompiled-code CPU; "
++                                 "use the game's own saves");
++    }
+     if (app_loader) {
+         if (!app_loader->SupportsSaveStates()) {
+             throw std::runtime_error("The current app loader doesn't support save states");
+@@ -194,6 +200,10 @@ void System::SaveState(u32 slot) const {
+ }
+ 
+ void System::LoadState(u32 slot) {
++    if (cpu_factory) {
++        throw std::runtime_error("Save states aren't available with the recompiled-code CPU; "
++                                 "use the game's own saves");
++    }
+     if (app_loader) {
+         if (!app_loader->SupportsSaveStates()) {
+             throw std::runtime_error("The current app loader doesn't support save states");
+diff --git a/src/input_common/main.cpp b/src/input_common/main.cpp
+index c17f61b..a53d79b 100644
+--- a/src/input_common/main.cpp
++++ b/src/input_common/main.cpp
+@@ -203,10 +203,12 @@ std::string GenerateAnalogParamFromKeys(int key_up, int key_down, int key_left,
+ Common::ParamPackage GetControllerButtonBinds(const Common::ParamPackage& params, int button) {
+     const auto native_button{static_cast<Settings::NativeButton::Values>(button)};
+     const auto engine{params.Get("engine", "")};
++#ifdef HAVE_SDL2
+     if (engine == "sdl") {
+         return dynamic_cast<SDL::SDLState*>(sdl.get())->GetSDLControllerButtonBind(params,
+                                                                                    native_button);
+     }
++#endif
+ #ifdef ENABLE_GCADAPTER
+     if (engine == "gcpad") {
+         return gcbuttons->GetGcTo3DSMappedButton(params.Get("port", 0), native_button);
+@@ -218,10 +220,12 @@ Common::ParamPackage GetControllerButtonBinds(const Common::ParamPackage& params
+ Common::ParamPackage GetControllerAnalogBinds(const Common::ParamPackage& params, int analog) {
+     const auto native_analog{static_cast<Settings::NativeAnalog::Values>(analog)};
+     const auto engine{params.Get("engine", "")};
++#ifdef HAVE_SDL2
+     if (engine == "sdl") {
+         return dynamic_cast<SDL::SDLState*>(sdl.get())->GetSDLControllerAnalogBindByGUID(
+             params.Get("guid", "0"), params.Get("port", 0), native_analog);
+     }
++#endif
+ #ifdef ENABLE_GCADAPTER
+     if (engine == "gcpad") {
+         return gcanalog->GetGcTo3DSMappedAnalog(params.Get("port", 0), native_analog);
+diff --git a/src/network/room.cpp b/src/network/room.cpp
+index a30ab0a..08b51ed 100644
+--- a/src/network/room.cpp
++++ b/src/network/room.cpp
+@@ -373,7 +373,13 @@ void Room::RoomImpl::HandleJoinRequest(const ENetEvent* event) {
+     }
+     member.user_data = verify_backend->LoadUserData(uid, token);
+ 
+-    if (nickname == room_information.host_username) {
++    // MH4U port: the host's rights go to the host's checked name (a lobby vouched for it), or to
++    // the host's own client, which joins the room it created from this machine. A nickname alone
++    // is anyone's to type, and a lobby shows a dedicated room's username as its owner.
++    const bool from_this_machine = event->peer->address.host == ENET_HOST_TO_NET_32(0x7F000001);
++    if (!room_information.host_username.empty() &&
++        (member.user_data.username == room_information.host_username ||
++         (from_this_machine && nickname == room_information.host_username))) {
+         member.user_data.moderator = true;
+         LOG_INFO(Network, "User {} is a moderator", std::string(room_information.host_username));
+     }
+diff --git a/src/video_core/gpu.cpp b/src/video_core/gpu.cpp
+index 87b7707..2d2f6a2 100644
+--- a/src/video_core/gpu.cpp
++++ b/src/video_core/gpu.cpp
+@@ -494,7 +494,11 @@ void GPU::VBlankCallback(std::uintptr_t user_data, s64 cycles_late) {
+     impl->renderer->SwapBuffers();
+ 
+     // Reschedule recurrent event
+-    impl->timing.ScheduleEvent(FRAME_TICKS - cycles_late, impl->vblank_event);
++    impl->timing.ScheduleEvent(impl->frame_ticks - cycles_late, impl->vblank_event);
++}
++
++void GPU::SetRefreshRate(double hz) {
++    impl->frame_ticks = hz > 0 ? static_cast<u64>(BASE_CLOCK_RATE_ARM11 / hz) : FRAME_TICKS;
+ }
+ 
+ void GPU::RecreateRenderer(Frontend::EmuWindow& emu_window, Frontend::EmuWindow* secondary_window) {
+diff --git a/src/video_core/gpu.h b/src/video_core/gpu.h
+index ac19b4c..0da3e31 100644
+--- a/src/video_core/gpu.h
++++ b/src/video_core/gpu.h
+@@ -69,6 +69,10 @@ public:
+     /// Sets the LCD color fill configuration for the top and bottom screens.
+     void SetColorFill(const Pica::ColorFill& fill);
+ 
++    /// Emulated LCD refresh rate (VBlanks per second; 0 = the 3DS's ~59.83 Hz). Games that
++    /// pace their frames by VBlank can then present more frames per second.
++    void SetRefreshRate(double hz);
++
+     /// Reads a word from the GPU virtual address.
+     u32 ReadReg(VAddr addr);
+ 
+diff --git a/src/video_core/gpu_impl.h b/src/video_core/gpu_impl.h
+index 14ac286..8d345e0 100644
+--- a/src/video_core/gpu_impl.h
++++ b/src/video_core/gpu_impl.h
+@@ -34,6 +34,7 @@ struct GPU::Impl {
+     RasterizerInterface* rasterizer;
+     std::unique_ptr<SwRenderer::SwBlitter> sw_blitter;
+     Core::TimingEventType* vblank_event;
++    u64 frame_ticks = FRAME_TICKS; ///< VBlank interval (SetRefreshRate)
+     Service::GSP::InterruptHandler signal_interrupt;
+ 
+     explicit Impl(Core::System& system, Frontend::EmuWindow& emu_window,
+diff --git a/src/video_core/pica/pica_core.cpp b/src/video_core/pica/pica_core.cpp
+index 97a3a64..c394f6b 100644
+--- a/src/video_core/pica/pica_core.cpp
++++ b/src/video_core/pica/pica_core.cpp
+@@ -13,6 +13,7 @@
+ #include "video_core/pica/pica_core.h"
+ #include "video_core/pica/vertex_loader.h"
+ #include "video_core/rasterizer_interface.h"
++#include "video_core/renderer_software/sw_rasterizer.h"
+ #include "video_core/shader/shader.h"
+ 
+ namespace Pica {
+@@ -1007,6 +1008,11 @@ void PicaCore::SubmitImmediate(u32 value) {
+ }
+ 
+ void PicaCore::DrawImmediate() {
++    if (!SwRenderer::IsDrawingEnabled()) [[unlikely]] {
++        immediate.current_attribute = 0;
++        return;
++    }
++
+     // Compile the vertex shader.
+     shader_engine->SetupBatch(vs_setup, regs.internal.vs.main_offset);
+ 
+@@ -1078,6 +1084,11 @@ void PicaCore::DrawArrays(bool is_indexed) {
+     delay_generator.AddVertices(regs.internal.pipeline.num_vertices,
+                                 regs.internal.pipeline.triangle_topology);
+ 
++    // Nothing is drawn: skip the vertex shaders too.
++    if (!SwRenderer::IsDrawingEnabled()) [[unlikely]] {
++        return;
++    }
++
+     // Attempt to use hardware vertex shaders if possible.
+     if (accelerate_draw && rasterizer->AccelerateDrawBatch(is_indexed)) {
+         return;
+diff --git a/src/video_core/renderer_opengl/renderer_opengl.cpp b/src/video_core/renderer_opengl/renderer_opengl.cpp
+index e78e2c0..9a16ad2 100644
+--- a/src/video_core/renderer_opengl/renderer_opengl.cpp
++++ b/src/video_core/renderer_opengl/renderer_opengl.cpp
+@@ -4,6 +4,7 @@
+ 
+ #include "common/logging/log.h"
+ #include "common/microprofile.h"
++#include "common/scope_exit.h"
+ #include "common/settings.h"
+ #include "core/core.h"
+ #include "core/frontend/emu_window.h"
+@@ -720,6 +721,13 @@ void RendererOpenGL::DrawScreens(const Layout::FramebufferLayout& layout, bool f
+         glUniform1i(uniform_layer, 0);
+         ApplySecondLayerOpacity(layout.bottom_opacity);
+         DrawBottomScreen(layout, bottom_screen);
++        // MH4U port: further parts of the bottom screen, each where the layout puts it
++        for (u32 i = 0; i < layout.bottom_view_count; ++i) {
++            auto view = layout;
++            view.bottom_crop = layout.bottom_views[i].crop;
++            glUniform1i(uniform_layer, 0);
++            DrawBottomScreen(view, layout.bottom_views[i].screen);
++        }
+     } else {
+         DrawBottomScreen(layout, bottom_screen);
+         glUniform1i(uniform_layer, 0);
+@@ -821,6 +829,14 @@ void RendererOpenGL::DrawBottomScreen(const Layout::FramebufferLayout& layout,
+         return;
+     }
+ 
++    // the port's touch-screen overlay can show just a part of the bottom screen
++    const auto full_texcoords = screen_infos[2].display_texcoords;
++    if (layout.is_rotated) {
++        screen_infos[2].display_texcoords =
++            Layout::CropLandscapeTexcoords(full_texcoords, layout.bottom_crop);
++    }
++    SCOPE_EXIT({ screen_infos[2].display_texcoords = full_texcoords; });
++
+     const float bottom_screen_left = static_cast<float>(bottom_screen.left);
+     const float bottom_screen_top = static_cast<float>(bottom_screen.top);
+     const float bottom_screen_width = static_cast<float>(bottom_screen.GetWidth());
+diff --git a/src/video_core/renderer_software/sw_rasterizer.cpp b/src/video_core/renderer_software/sw_rasterizer.cpp
+index 1e82f87..02ca34a 100644
+--- a/src/video_core/renderer_software/sw_rasterizer.cpp
++++ b/src/video_core/renderer_software/sw_rasterizer.cpp
+@@ -2,6 +2,7 @@
+ // Licensed under GPLv2 or any later version
+ // Refer to the misc/licenses/gplv2.txt file included.
+ 
++#include <atomic>
+ #include <boost/container/static_vector.hpp>
+ #include "common/logging/log.h"
+ #include "common/microprofile.h"
+@@ -105,8 +106,23 @@ RasterizerSoftware::RasterizerSoftware(Memory::MemorySystem& memory_, Pica::Pica
+       num_sw_threads{std::max(std::thread::hardware_concurrency(), 2U)},
+       sw_workers{num_sw_threads, "SwRenderer workers"}, fb{memory, regs.framebuffer} {}
+ 
++namespace {
++std::atomic<bool> drawing_enabled{true};
++} // Anonymous namespace
++
++void SetDrawingEnabled(bool enabled) {
++    drawing_enabled.store(enabled, std::memory_order_relaxed);
++}
++
++bool IsDrawingEnabled() {
++    return drawing_enabled.load(std::memory_order_relaxed);
++}
++
+ void RasterizerSoftware::AddTriangle(const Pica::OutputVertex& v0, const Pica::OutputVertex& v1,
+                                      const Pica::OutputVertex& v2) {
++    if (!drawing_enabled.load(std::memory_order_relaxed)) [[unlikely]] {
++        return;
++    }
+     /**
+      * Clipping a planar n-gon against a plane will remove at least 1 vertex and introduces 2 at
+      * the new edge (or less in degenerate cases). As such, we can say that each clipping plane
+@@ -562,7 +578,12 @@ std::array<Common::Vec4<u8>, 4> RasterizerSoftware::TextureColor(
+             const auto info = TextureInfo::FromPicaRegister(texture.config, texture.format);
+ 
+             // TODO: Apply the min and mag filters to the texture
+-            texture_color[i] = LookupTexture(texture_data, s, t, info);
++            if (!texture_data) [[unlikely]] {
++                // A texture outside of memory (the hardware renderers skip these too).
++                texture_color[i] = {0, 0, 0, 255};
++            } else {
++                texture_color[i] = LookupTexture(texture_data, s, t, info);
++            }
+         }
+ 
+         if (i == 0 && (texture.config.type == TexturingRegs::TextureConfig::Shadow2D ||
+diff --git a/src/video_core/renderer_software/sw_rasterizer.h b/src/video_core/renderer_software/sw_rasterizer.h
+index 318a62e..cd75b88 100644
+--- a/src/video_core/renderer_software/sw_rasterizer.h
++++ b/src/video_core/renderer_software/sw_rasterizer.h
+@@ -20,6 +20,13 @@ namespace SwRenderer {
+ 
+ struct Vertex;
+ 
++/// Whether triangles are drawn at all. A headless runner can skip drawing the frames nobody
++/// looks at: emulation is unaffected, only the screens' contents are. While drawing is off,
++/// the PICA also skips the vertex shaders of draw calls, which the GPU runs on the CPU's
++/// time without advancing the emulated clock.
++void SetDrawingEnabled(bool enabled);
++bool IsDrawingEnabled();
++
+ class RasterizerSoftware : public VideoCore::RasterizerInterface {
+ public:
+     explicit RasterizerSoftware(Memory::MemorySystem& memory, Pica::PicaCore& pica);
+diff --git a/src/video_core/renderer_vulkan/renderer_vulkan.cpp b/src/video_core/renderer_vulkan/renderer_vulkan.cpp
+index 611e092..402c88d 100644
+--- a/src/video_core/renderer_vulkan/renderer_vulkan.cpp
++++ b/src/video_core/renderer_vulkan/renderer_vulkan.cpp
+@@ -6,6 +6,7 @@
+ #include "common/logging/log.h"
+ #include "common/memory_detect.h"
+ #include "common/microprofile.h"
++#include "common/scope_exit.h"
+ #include "common/settings.h"
+ #include "core/core.h"
+ #include "core/frontend/emu_window.h"
+@@ -13,6 +14,7 @@
+ #include "video_core/pica/pica_core.h"
+ #include "video_core/renderer_vulkan/renderer_vulkan.h"
+ #include "video_core/renderer_vulkan/vk_memory_util.h"
++#include "video_core/renderer_vulkan/vk_overlay.h"
+ #include "video_core/renderer_vulkan/vk_shader_util.h"
+ 
+ #include "video_core/host_shaders/vulkan_present_anaglyph_frag.h"
+@@ -60,6 +62,13 @@ constexpr static std::array<vk::DescriptorSetLayoutBinding, 1> PRESENT_BINDINGS
+     {0, vk::DescriptorType::eCombinedImageSampler, 3, vk::ShaderStageFlagBits::eFragment},
+ }};
+ 
++// MH4U port: the frontend's drawing over the screens (vk_overlay.h), none by default
++static PresentOverlay present_overlay;
++
++void SetPresentOverlay(PresentOverlay overlay) {
++    present_overlay = std::move(overlay);
++}
++
+ namespace {
+ static bool IsLowRefreshRate() {
+ #if (defined(__APPLE__) || defined(ENABLE_SDL2)) && !defined(HAVE_LIBRETRO)
+@@ -140,6 +149,9 @@ RendererVulkan::~RendererVulkan() {
+     scheduler.Finish();
+     main_present_window.WaitPresent();
+     device.waitIdle();
++    if (present_overlay.release) {
++        present_overlay.release(); // MH4U port: the overlay's objects go first
++    }
+ 
+     device.destroyShaderModule(present_vertex_shader);
+     for (u32 i = 0; i < PRESENT_PIPELINES; i++) {
+@@ -959,6 +971,13 @@ void RendererVulkan::DrawBottomScreen(const Layout::FramebufferLayout& layout,
+         return;
+     }
+ 
++    // the port's touch-screen overlay can show just a part of the bottom screen
++    const auto full_texcoords = screen_infos[2].texcoords;
++    if (layout.is_rotated) {
++        screen_infos[2].texcoords = Layout::CropLandscapeTexcoords(full_texcoords, layout.bottom_crop);
++    }
++    SCOPE_EXIT({ screen_infos[2].texcoords = full_texcoords; });
++
+     const float bottom_screen_left = static_cast<float>(bottom_screen.left);
+     const float bottom_screen_top = static_cast<float>(bottom_screen.top);
+     const float bottom_screen_width = static_cast<float>(bottom_screen.GetWidth());
+@@ -1040,6 +1059,13 @@ void RendererVulkan::DrawScreens(Frame* frame, const Layout::FramebufferLayout&
+             ApplySecondLayerOpacity(layout.bottom_opacity);
+         }
+         DrawBottomScreen(layout, bottom_screen);
++        // MH4U port: further parts of the bottom screen, each where the layout puts it
++        for (u32 i = 0; i < layout.bottom_view_count; ++i) {
++            auto view = layout;
++            view.bottom_crop = layout.bottom_views[i].crop;
++            draw_info.layer = 0;
++            DrawBottomScreen(view, layout.bottom_views[i].screen);
++        }
+     } else {
+         DrawBottomScreen(layout, bottom_screen);
+         draw_info.layer = 0;
+@@ -1060,6 +1086,27 @@ void RendererVulkan::DrawScreens(Frame* frame, const Layout::FramebufferLayout&
+ 
+     DrawCursor(layout);
+ 
++    // MH4U port: the frontend's overlay over the main window's screens
++    if (present_overlay.draw && !isSecondaryWindow) {
++        const PresentOverlay::Context context{
++            VULKAN_HPP_DEFAULT_DISPATCHER.vkGetInstanceProcAddr,
++            static_cast<VkInstance>(instance.GetInstance()),
++            static_cast<VkPhysicalDevice>(instance.GetPhysicalDevice()),
++            static_cast<VkDevice>(instance.GetDevice()),
++            instance.ApiVersion(),
++            instance.GetGraphicsQueueFamilyIndex(),
++            static_cast<VkQueue>(instance.GetGraphicsQueue()),
++            &scheduler.submit_mutex,
++            static_cast<VkRenderPass>(main_present_window.Renderpass()),
++            main_present_window.ImageCount(),
++        };
++        if (auto commands = present_overlay.draw(context, layout.width, layout.height)) {
++            scheduler.Record([commands = std::move(commands)](vk::CommandBuffer cmdbuf) {
++                commands(static_cast<VkCommandBuffer>(cmdbuf));
++            });
++        }
++    }
++
+     scheduler.Record([](vk::CommandBuffer cmdbuf) { cmdbuf.endRenderPass(); });
+ }
+ 
+diff --git a/src/video_core/renderer_vulkan/vk_overlay.h b/src/video_core/renderer_vulkan/vk_overlay.h
+new file mode 100644
+index 0000000..cf5c933
+--- /dev/null
++++ b/src/video_core/renderer_vulkan/vk_overlay.h
+@@ -0,0 +1,47 @@
++// Copyright 2026 Azahar Emulator Project
++// Licensed under GPLv2 or any later version
++// Refer to the misc/licenses/gplv2.txt file included.
++
++// MH4U port: a frontend's own drawing over the screens, e.g. the port's app's in-game menu
++// (Dear ImGui). Nothing is drawn unless a frontend registers an overlay.
++
++#pragma once
++
++#include <cstdint>
++#include <functional>
++#include <mutex>
++#ifndef VK_NO_PROTOTYPES
++#define VK_NO_PROTOTYPES
++#endif
++#include <vulkan/vulkan_core.h>
++
++namespace Vulkan {
++
++struct PresentOverlay {
++    /// What a drawing library needs of the renderer.
++    struct Context {
++        PFN_vkGetInstanceProcAddr get_instance_proc_addr;
++        VkInstance instance;
++        VkPhysicalDevice physical_device;
++        VkDevice device;
++        std::uint32_t api_version;
++        std::uint32_t queue_family;
++        VkQueue queue;
++        std::mutex* queue_mutex;   ///< held by whoever submits to `queue`
++        VkRenderPass render_pass;  ///< the main window's present render pass (subpass 0)
++        std::uint32_t image_count; ///< frames in flight
++    };
++    using Commands = std::function<void(VkCommandBuffer)>;
++
++    /// Called once a frame on the emulation thread while the main window's present render pass
++    /// is being recorded, `width` x `height` pixels: the commands it returns are recorded in
++    /// that render pass after the screens, on the scheduler's thread. Empty: nothing this frame.
++    std::function<Commands(const Context&, std::uint32_t width, std::uint32_t height)> draw;
++    /// The renderer is going away and its device is idle: release what `draw` made.
++    std::function<void()> release;
++};
++
++/// Registers the overlay (an empty one removes it).
++void SetPresentOverlay(PresentOverlay overlay);
++
++} // namespace Vulkan

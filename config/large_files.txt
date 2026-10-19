@@ -1,0 +1,12 @@
+# Files allowed past the size rule (2 MB) and the image/ELF/archive rules (extensions and magic
+# bytes) of tools/check_no_game_data.py. Capture magics, the build/, baserom/ and export/
+# directories, the ci.yml patterns, the .ppm/.bin/.wav extensions and the trace rules are never
+# exempted.
+# Only files that are ours or vendored third-party files (an application icon, open-source system
+# archives) belong here, never anything from a game run.
+# One entry per line: <sha256 of the file> <repo-relative path>
+# An entry matches only while both the path and the hash match.
+301b10e1c6dabcee13e0ae7020a8fa64af4c736c3968446561ae0b0acfde64aa port/app/icon/icon_data.h
+95aa5a5b6658c8e1c5c2ea81ce20f2b8b12b311ad39d7a4f49413ed045e647a8 port/app/icon/mh4u.icns
+973f6cc396e6ed1874eaabaf0c45d0285a96ee55b699d729c9692b3bc42aa190 port/app/icon/mh4u.ico
+ad5592a76c787ef52de9bcdf7cedf4012b410b94bd710373a9982ac2f4888b8c port/app/icon/mh4u.png

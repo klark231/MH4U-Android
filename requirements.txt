@@ -1,0 +1,4 @@
+pyelftools>=0.31
+pytest>=8
+unicorn>=2.0
+capstone>=5.0

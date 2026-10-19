@@ -1,0 +1,21 @@
+{
+  "_comment": "Hashes of decompressed code.bin and exheader per known version. Add entries only from dumps you verified yourself. Never commit the files themselves.",
+  "versions": [
+    {
+      "name": "USA v1.3.0 (update title 0004000E00126300, CTR-U-BFGE)",
+      "target": true,
+      "program_id": "0004000000126300",
+      "update_title_id": "0004000E00126300",
+      "title_version": 1072,
+      "exheader_sci_sha1": "df862f7556cd8ec22496512a358bd639a98e3cdd",
+      "code_sha1": "c9225f87ca3f65e8537484d029b08b8b04c3717d",
+      "code_size": "0xF82000",
+      "segments": {
+        "text": ["0x00100000", "0x00CEC734"],
+        "rodata": ["0x00DED000", "0x000D2D90"],
+        "data": ["0x00EC0000", "0x001C1B84"],
+        "bss": ["0x01081B84", "0x0009B5A4"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+# MH4U online play on a server with Docker: the lobby (the room list Azahar shows, and the check
+# of names) and one dedicated room (the game traffic). docs/SERVER.md walks through it.
+#
+#   cd server/docker
+#   cp example.env .env       # then set PUBLIC_ADDRESS and the rest in .env
+#   docker compose up -d --build
+#
+# Open on the server's firewall: TCP 24872 (the lobby) and UDP 24872 (the room). Players set
+# Emulation > Configure > General > Network > Network Web API URL = http://PUBLIC_ADDRESS:24872
+#   docker compose logs -f                                     what both are doing
+#   docker compose exec lobby mh4u-lobby add-user "Hunter One"   a name (invite mode) and its token
+#   docker compose exec lobby mh4u-lobby list-users
+#
+# Variables (in .env, or the environment), with their defaults:
+#   PUBLIC_ADDRESS     this server's public IP or host name: the lobby lists the room below at
+#                      it (the room announces itself from the containers' private network)
+#   LOBBY_MODE=open    open: a name belongs to whoever signs in with it first; invite: only
+#                      names added with add-user or claimed with an invite token
+#   LOBBY_PORT=24872   the lobby's TCP port on this server
+#   ROOM_NAME=MH4U Gathering Hall, ROOM_DESCRIPTION, ROOM_PASSWORD, ROOM_MAX_MEMBERS=16
+#   ROOM_PORT=24872    the room's UDP port, the same inside and outside its container
+#   LOBBY_USERNAME, LOBBY_TOKEN   the room's own name and token in the lobby; without them the
+#                      room is unlisted (players use Direct Connect). No default name: see
+#                      "Moderators" in docs/SERVER.md before you choose one
+#   LOBBY_URL=http://lobby:24872  the lobby the room announces itself to (this file's)
+# Logs are rotated (three files of 10 MB at most for each service), and the lobby's health
+# checks stay out of them.
+
+name: mh4u-server
+
+x-logging: &logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  lobby:
+    build:
+      context: ../..
+      dockerfile: server/docker/Dockerfile.lobby
+    image: mh4u-lobby
+    restart: unless-stopped
+    command: ["--mode", "${LOBBY_MODE:-open}", "--public-address", "${PUBLIC_ADDRESS:-}"]
+    ports:
+      - "${LOBBY_PORT:-24872}:24872/tcp"
+    volumes:
+      - lobby-data:/data
+    logging: *logging
+
+  room:
+    build:
+      context: ../..
+      dockerfile: server/docker/Dockerfile.room
+    image: mh4u-room
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      lobby:
+        condition: service_healthy  # it announces itself once, at the start
+    environment:
+      ROOM_NAME: ${ROOM_NAME:-MH4U Gathering Hall}
+      ROOM_DESCRIPTION: ${ROOM_DESCRIPTION:-}
+      ROOM_PORT: ${ROOM_PORT:-24872}
+      ROOM_PASSWORD: ${ROOM_PASSWORD:-}
+      ROOM_MAX_MEMBERS: ${ROOM_MAX_MEMBERS:-16}
+      LOBBY_URL: ${LOBBY_URL:-http://lobby:24872}
+      LOBBY_USERNAME: ${LOBBY_USERNAME:-}
+      LOBBY_TOKEN: ${LOBBY_TOKEN:-}
+    ports:
+      - "${ROOM_PORT:-24872}:${ROOM_PORT:-24872}/udp"
+    volumes:
+      - room-data:/data
+    stop_grace_period: 30s  # time to leave the lobby and save the ban list
+
+volumes:
+  lobby-data:
+  room-data:

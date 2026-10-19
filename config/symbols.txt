@@ -1,0 +1,174 @@
+# Accepted names for USA v1.3.0. Format: <address> <name> [# note]
+# Names are ours unless a note says otherwise; the original source names are unknown.
+# Single writer: the orchestrator (see docs/AGENT_WORKFLOW.md).
+0x00100000 entry                    # crt0 entry point
+0x005bf888 crc32_string             # u32 (const char *s, u32 crc): table CRC-32 over a NUL-terminated string, no final inversion
+0x005bfa94 MtDTI::MtDTI             # (this, name, parent, size, arg4, flags, id); see docs/research/mt-classes.md
+0x00e30340 crc32_table              # const u32[256], standard reflected CRC-32 (poly 0xEDB88320)
+0x0010ec6c __aeabi_lasr             # RVCT runtime: s64 >> n (pilot-1)
+0x00556598 PacketAnalysisData::CreateIndex  # from its own error string (pilot-1)
+0x00e4fc94 data_00e4fc94            # const {s32 key; s32 value;}[6], keys 3..8 -> 9..14 (pilot-1)
+0x00ed2440 data_00ed2440            # const {u8 id; u8 unk; u8 value;}[18] (pilot-1)
+0x010b4af8 g_010b4af8               # .bss, 10 records x 0x50, first two bytes are lookup keys (pilot-1)
+
+# System calls and services (tools/find_services.py, docs/research/system-services.md)
+0x0010919c svcCreateEvent
+0x001091b4 svcCreateThread
+0x001091f4 svcGetThreadId
+0x0010b8c0 svcConnectToPort
+0x0010b8d8 svcWaitSynchronizationN
+0x0010d934 svcSleepThread                 # nop + svc 0x0A
+0x0010fc54 svcArbitrateAddress
+0x00111864 svcCreateMemoryBlock
+0x00111880 svcCreateMutex
+0x00111898 svcCreateTimer
+0x001118b0 svcDuplicateHandle
+0x001118e4 svcGetSystemTick               # nop + svc 0x28 (Ghidra splits at 0x001118e8)
+0x00111908 svcSetTimer
+0x00300f04 strlen                         # RVCT word-at-a-time strlen
+0x0010a110 srv_Initialize                 # ConnectToPort("srv:") + RegisterClient
+0x0010cc1c srv_GetServiceHandle           # IPC 0x00050100
+0x0010a234 srv_GetServiceHandleChecked    # srv ready + name length <= 8, tail-calls 0x0010cc1c
+0x01057de4 g_srvHandle
+0x01057648 g_fsUserHandle
+0x01057d98 g_fsUserSession                # copy of g_fsUserHandle, set by 0x00107800
+0x01057dc0 g_gspGpuHandle                 # copy of 0x01057dbc
+0x01064b50 g_hidUserHandle
+0x01065338 g_nwmUdsHandle
+0x01057d70 g_dspHandle
+0x0056ca84 gsp_Initialize
+0x0056d24c gsp_SetupInterrupts            # CreateEvent + RegisterInterruptRelayQueue + map shm + thread
+0x0056d43c gsp_InterruptThread
+0x0056d7f4 gsp_SetInterruptCallback       # (callback, id < 7) -> old
+0x0056dafc gspGpu_RegisterInterruptRelayQueue
+0x00ec6c40 g_gspState
+0x00d81674 gx_Initialize                  # nngxInitialize-like
+0x00d82d00 gx_WaitVSync                   # 0x400 top, 0x401 bottom, 0x402 both
+0x00d824ac gx_SetVSyncCallback
+0x0110d004 g_gxVBlankCountTop
+0x0110d008 g_gxVBlankCountBottom
+0x00107c6c hid_Initialize
+0x0010a010 hidUser_GetIPCHandles
+0x0110e488 g_hidReaders
+0x0010665c fs_Initialize
+0x00107800 fs_SetSession                  # + InitializeWithSdkVersion(0x090B00C8)
+0x0010db0c fsUser_OpenArchive
+0x0010db9c fsUser_OpenFileDirectly
+0x00564998 uds_Initialize
+
+# Engine main loop, frame timing and rendering (docs/research/system-services.md)
+0x001046d0 mtMain                         # creates sMhMain from its DTI and runs the loop
+0x00105acc mtMainLoop                     # vtable+0x1c until byte +0x54 is set
+0x00644968 sMain::sMain
+0x006442f8 sMain::updateFrameTiming       # frame limiter / delta time: +0x2c rate, +0x30 cap, +0x5c delta (1/60 s frames)
+0x00af55a4 sMhMain::sMhMain
+0x00af5250 sMhMain::frame                 # vtable 0x00e6b814 + 0x1c
+0x01057194 g_sMainInstance
+0x00bfbabc sLtRender::sLtRender
+0x00bfa42c sLtRender::initGraphics
+0x00bf5f9c sLtRender::flip
+0x00bf894c sLtRender::present
+0x00bf672c sLtRender::submit
+0x00bfa6f0 sLtRender::updateDisplaySkip   # per-screen present every mDisplaySkip+1 frames
+0x00bf66f0 sLtRender::onVSync
+0x00bf685c sLtRender::createProperty      # registers mDisplaySkip, mVSyncEdit, ...
+0x010572cc g_sLtRenderInstance
+0x005b87b0 sPad::sPad
+0x005b825c sPad::update
+
+# Camera, projection, render targets and 2D layout (docs/research/widescreen.md)
+0x0105729c g_sCameraInstance              # sMhCamera*: 8 viewports at +0x18 (0x1a8 each), +0x16 mDisplay 0 top / 1 bottom
+0x010572a4 g_sEffectInstance
+0x010572ac g_sGUIInstance
+0x010572f0 g_sSceneInstance
+0x010572d0 g_sLtShaderInstance
+0x01057534 g_sLayoutInstance              # the sMhLayout
+0x01057c34 g_sVibrationInstance           # per-viewport view override (camera shake?)
+0x0104dea0 g_sAppletInstance              # +0x30 state; 4-6 force the bottom pass
+0x00af1f04 sCamera::sCamera               # 8 Viewports x 0x1a8 at +0x18; mVirtualRect +0xd68 = {0,0,400,572}
+0x00aee170 sCamera::createProperty
+0x00aeee2c sCamera::update                # vtable +0x1c: aspect -> uCamera+0x38, view/proj, frustum planes
+0x00aee5d4 sCamera::draw                  # vtable +0x28 (this, ctx, target, display): viewports with mDisplay == display
+0x00af0038 sCamera::Viewport::createProperty  # mRegion +0x24, mpCamera +4, mMode +0x15, mDisplay +0x16
+0x00aefd44 sCamera::Viewport::updateRegion    # region from scene target (240x400 hard-coded) and mMode
+0x00af084c sCamera::Viewport::setupDraw   # stereo/rotation, calls cDraw::setScene
+0x00c07070 sMhCamera::sMhCamera
+0x00c05ce4 sMhCamera::update              # vtable +0x1c, calls sCamera::update
+0x00bfd9b0 sMhCamera::setupViewports      # vp0 <- camera +0xe0c (top), vp7 <- camera +0xe10, mDisplay 1 (bottom)
+0x00afa244 uCamera::uCamera               # far 4e6, near 16, aspect 1, fov 40
+0x00af9c2c uCamera::createProperty        # +0x30 far, +0x34 near, +0x38 aspect, +0x3c fov
+0x00c463dc uMhCamera::createProperty      # mRoll +0xd0, mFovType +0xd4
+0x00c46380 uMhCamera::getProjMatrix       # vtable +0x4c
+0x00b70fe0 uMhCamera::getViewMatrix       # vtable +0x48, falls into MtMatrix::lookAt
+0x002535f8 uFreeCamera::getProjMatrix     # vtable +0x4c
+0x0032ebc0 uMotionCamera::createProperty  # mZoom +0x100, mFovType +0x114
+0x0032e338 uMotionCamera::getProjMatrix   # vtable +0x4c
+0x00b7171c MtMatrix::perspective          # (out, s0 near, s1 far, s2 fovy rad, s3 aspect)
+0x00b70ff0 MtMatrix::lookAt               # (out, eye, target, up)
+0x00d14760 tanf
+0x00633188 nDraw::Scene::Scene            # params {w,h,flag,AA,flags,float}
+0x0062e184 nDraw::DisplayBuffer::init     # (this, w, h, format, ...): +0x24 w, +0x28 h, +0x18 addr
+0x00bf83b0 sLtRender::bindRenderTarget    # PICA FB, viewport 0x41-0x44/0x68, scissor 0x66/0x67
+0x00bfa7ec sLtRender::execute             # render-thread packet executor (14 types)
+0x00bf5a4c sLtRender::buildFrame          # top pass if +0x8ab1, bottom pass if +0x8ab2 or applet state 4-6
+0x00d809bc gx_AddB2LTransferCommand
+0x00d89448 gx_CmdlistAddB2LTransfer       # GX request 3 (display transfer)
+0x005e294c cDraw::setViewport             # int rect -> +0x12c..+0x138
+0x005e040c cDraw::setScene                # matrices + frustum planes at [+0x428]
+0x005e3708 cDraw::cullAABB
+0x005e4558 cDraw::cullSphere
+0x00af38e4 sEffect::sEffect               # mDefaultScreenSize +0x30/+0x34 = 400x240
+0x00af41b8 sLayout::sLayout
+0x00af3cfc sLayout::screenToLayout        # (out, sLayout*, x, y, screen): (cx - x, 120 - y), cx 160 bottom / 200 top
+0x00af3d60 sLayout::beginViewport         # 2D ortho projection sized by the current viewport rect
+0x005b6454 sGUI::sGUI                     # +0x7c 90-degree rotation matrix
+0x005b5888 sGUI::createProperty           # UpperView +0x70, LowerView +0x71, LowerViewOffset +0x80
+0x002860c0 cGUIInstance::createProperty   # DrawUpper / DrawLower
+0x005bb940 uGUI::createProperty
+0x005bc350 uGUI::draw                     # vtable +0x30
+0x00b04774 uLayout::draw                  # vtable +0x30: objects whose view (+0x44 bits 14-17) == viewport index
+0x001a45e4 sVibration::sVibration
+
+# Bottom screen, layouts and touch panels (docs/research/second-screen.md)
+0x010572f8 g_sUnitInstance
+0x00c11930 sMhLayout::sMhLayout           # +0x245 upper view 0, +0x246 lower view 7, +0x100 uLayout*
+0x00c0f424 sMhLayout::registerLayout      # (this, screen, firstIndex, rLayout*) -> count; sets view bits of +0x44
+0x00c0f598 sMhLayout::findObject          # (this, key*) -> layout object
+0x00c1012c sMhLayout::loadQuestLayouts    # quest HUD (top) + ui601-604/610/250 and area map (bottom)
+0x00c105a4 sMhLayout::loadQuestSubLayout  # lyt\quest\ui230-ui243 by index, bottom screen
+0x005ed628 makeNameKey                    # {crc32_string(name, ~0), name}
+0x00b04558 uLayout::findIndex             # object whose +0 hash == key, or -1
+0x00b048a0 uLayout::getObject             # (this, index): array +0x154, count +0x160
+0x00ae538c LayoutObject::setVisible       # bit 0x400 of +0x44; re-sorts the draw list
+0x00d03938 LayoutHit::contains            # (entry {obj, part}, point)
+0x005b70b0 sPad::readDevices
+0x005b8438 sPad::processInput             # pad words, touch x/y Pad+0x8a/+0x8c, touch bit 0x01000000
+0x00cf9340 sPad::TouchStatus::getSample   # (this, framesBack) -> {u16 x, u16 y, u8 down}
+0x0069522c sMhPad::sMhPad
+0x00694c98 sMhPad::update                 # actions +0x30c, injected +0x3f0/+0x3f4, touch block +0x3e0
+0x006949a0 sMhPad::updateMenuInput        # menu block +0x340
+0x00fb8260 g_padActionMap                 # u32 pad masks[16], u16 action bits[16] at +0x40
+0x00fb6b7c g_sGameControlInstance         # game_mode at +0x2b
+0x002b6048 sGameControl::sGameControl
+0x002b0658 sGameControl::createProperty
+0x00af46c8 sMhMain::createProperty        # subsystem pointers +0x288..+0x330 (mpPad +0x2b0, mpLayout +0x2e0, mpCamera +0x294)
+0x00fb83e8 g_sPlayerInstance
+0x00af9b48 sPlayer::sPlayer
+0x00aede74 sApplet::sApplet
+0x0109a350 g_panelManager                 # +0xce touched panel id, +0xcc event flags
+0x00288f4c PanelManager::isTapped         # (id): +0xce == id && +0xcc & 0x200 && id not masked
+0x002951fc PanelManager::processTouch
+0x002a4468 PanelManager::update
+0x0108260c g_questHud
+0x0013f230 getQuestHud
+0x01082cec g_questPanels                  # touch panels: u16 type per slot at +0x7a (6 slots, two columns of three), u8 hidden-slot bits at +0xb1
+0x001287a4 getQuestPanels
+0x00b9ba38 QuestHud::updatePanelState     # HUD +0x2a9: 0/1 the small panels, 2 a big panel open (+0x2ab its type), 3 closing
+0x00b92e24 QuestHud::updatePanels         # runs each panel by type while the small panels are up (type 6 the map, 13 target camera, 14 kick)
+0x00b9f4c8 panelSizeClass                 # (type): from the table at 0x00ed2440 (type, size class, group); 0 one slot, 1 two slots tall, 3 two wide
+0x00b94a80 QuestHud::panelTapped          # (type, slot, mode): per-slot touch records at 0x00def804+0x14c (slot*3 + shape)
+0x0065c18c aQuest::playing             # (this, state): the quest area's playing state, once a frame; +0x3c units of the wait left after the quest is complete, +0x48 end stage; state +0x24 phase (0 playing, 1 waiting)
+0x0065a378 aQuest::endSequence         # (this, state): after the wait, the questclear/questfailed animations and the stamp; sets the holder's status to 4
+0x006a62c8 QuestHolder::outcome        # (this, 1): -1 failed/abandoned, 0 running, 1 complete (statuses 3, 4, 7)
+0x006a025c QuestHolder::waitUnits      # (this): the units of the wait before the return (+0xad60), 0 for the default
+0x0028f2f0 PanelManager::touchAllowed    # (hit): whether touches are allowed now (+0xb3 of the manager clear); processTouch keeps the hit test's result in r5 across the call

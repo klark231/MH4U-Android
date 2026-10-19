@@ -1,0 +1,258 @@
+name: macOS build
+
+# Azahar at the commit in port/azahar/COMMIT, with port/azahar/azahar.patch and the port's
+# CPU backend, built as an app for Apple silicon the way Azahar's own CI builds its macOS
+# release (without FFmpeg, which only video dumping uses), and the port's own app (port/app,
+# mh4u) as MH4U.app. They contain no game code: the game's code library is made on the
+# player's Mac from their own dump (tools/build_game.py) and loaded at run time. Published
+# under the repository's licence (GPL-3.0-or-later, like Azahar) with the matching source
+# (this repository at the built commit, Azahar at port/azahar/COMMIT plus
+# port/azahar/azahar.patch). Not tried on a Mac yet.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "port/**"
+      - "tools/**"
+      - "config/**"
+      - "server/**"
+      - ".github/workflows/macos.yml"
+
+jobs:
+  app:
+    runs-on: macos-26
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_COMPILERCHECK: content
+      CCACHE_SLOPPINESS: time_macros
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mh4u
+      - name: Azahar at the pinned commit, with the port's patch
+        run: |
+          git clone https://github.com/azahar-emu/azahar.git azahar
+          cd azahar
+          git checkout "$(cat ../mh4u/port/azahar/COMMIT)"
+          git submodule update --init --recursive --depth 1
+          git apply ../mh4u/port/azahar/azahar.patch
+      - name: Tools
+        run: brew install ccache ninja spirv-tools
+      - name: Compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: macos-${{ hashFiles('mh4u/port/azahar/COMMIT') }}-${{ github.sha }}
+          restore-keys: macos-${{ hashFiles('mh4u/port/azahar/COMMIT') }}-
+      - name: Build
+        run: |
+          mkdir -p azahar/build && cd azahar/build
+          cmake .. -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DENABLE_ROOM_STANDALONE=OFF \
+            -DENABLE_FFMPEG=OFF \
+            -DENABLE_TESTS=OFF \
+            -DMH4U_PORT_DIR="${GITHUB_WORKSPACE}/mh4u/port"
+          ninja
+          ninja bundle
+          ccache -s
+      - name: The app's bundle (MH4U.app)
+        working-directory: azahar/build
+        run: |
+          app=bundle/MH4U.app
+          exe=$app/Contents/MacOS/mh4u
+          rm -rf $app
+          mkdir -p $app/Contents/MacOS $app/Contents/Frameworks $app/Contents/Resources
+          cp bin/Release/mh4u $exe
+          cp ../../mh4u/port/app/icon/mh4u.icns $app/Contents/Resources/mh4u.icns
+          # the libraries a Mach-O file loads, and the folders its @rpath stands for
+          dylibs() {
+            otool -l "$1" | awk '$1 == "cmd" && $2 ~ /^LC_(LOAD|LOAD_WEAK|REEXPORT|LAZY_LOAD|LOAD_UPWARD)_DYLIB$/ { getline; getline; print $2 }'
+          }
+          rpaths() {
+            otool -l "$1" | awk '$1 == "cmd" && $2 == "LC_RPATH" { getline; getline; print $2 }'
+          }
+          # The ones that aren't part of macOS go into Contents/Frameworks: MoltenVK (Vulkan on
+          # Metal), which Azahar's build downloaded; anything else is an error, since a player's
+          # Mac has no Homebrew. The executable's rpaths into the build folder become that one.
+          build_rpaths=$(rpaths bin/Release/mh4u)
+          echo "mh4u's rpaths in the build: $build_rpaths"
+          for lib in $(dylibs bin/Release/mh4u); do
+            case $lib in
+              /System/Library/* | /usr/lib/*) ;;
+              @rpath/*)
+                found=""
+                for dir in $build_rpaths; do
+                  dir=${dir/#@executable_path/$PWD/bin/Release}
+                  dir=${dir/#@loader_path/$PWD/bin/Release}
+                  if [ -f "$dir/${lib#@rpath/}" ]; then found=$dir/${lib#@rpath/}; break; fi
+                done
+                if [ -z "$found" ]; then echo "::error::mh4u loads $lib, which isn't in its rpaths"; exit 1; fi
+                echo "bundling $found"
+                cp "$found" $app/Contents/Frameworks/
+                ;;
+              *) echo "::error::mh4u loads $lib, which a Mac without Homebrew doesn't have"; exit 1 ;;
+            esac
+          done
+          for dir in $build_rpaths; do install_name_tool -delete_rpath "$dir" $exe; done
+          install_name_tool -add_rpath @executable_path/../Frameworks $exe
+          minos=$(otool -l $exe | awk '$1 == "minos" { print $2; exit }')
+          cat > $app/Contents/Info.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleName</key>
+              <string>MH4U</string>
+              <key>CFBundleIdentifier</key>
+              <string>io.github.compalarios18.mh4u</string>
+              <key>CFBundleExecutable</key>
+              <string>mh4u</string>
+              <key>CFBundleIconFile</key>
+              <string>mh4u</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleInfoDictionaryVersion</key>
+              <string>6.0</string>
+              <key>CFBundleShortVersionString</key>
+              <string>${GITHUB_SHA:0:7}</string>
+              <key>CFBundleVersion</key>
+              <string>${GITHUB_RUN_NUMBER}</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>${minos:-13.4}</string>
+              <key>LSApplicationCategoryType</key>
+              <string>public.app-category.games</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+              <key>NSMicrophoneUsageDescription</key>
+              <string>The 3DS's microphone, for a game that uses it.</string>
+              <key>NSCameraUsageDescription</key>
+              <string>The 3DS's cameras, for a game that uses them.</string>
+              <key>NSLocalNetworkUsageDescription</key>
+              <string>Multiplayer rooms on your local network.</string>
+          </dict>
+          </plist>
+          EOF
+          plutil -lint $app/Contents/Info.plist
+          # ad hoc signatures, as the bundle target gives Azahar's app (neither is notarized)
+          codesign --force --deep --sign - $app
+          codesign --verify --deep --strict --verbose=2 $app
+          # Check: the app's code loads only macOS's libraries and the app's own (its one rpath
+          # is Contents/Frameworks)...
+          for file in $exe $app/Contents/Frameworks/*; do
+            for lib in $(dylibs "$file"); do
+              case $lib in
+                /System/Library/* | /usr/lib/*) continue ;;
+                @rpath/*) need=$app/Contents/Frameworks/${lib#@rpath/} ;;
+                @executable_path/../Frameworks/* | @loader_path/../Frameworks/*)
+                  need=$app/Contents/Frameworks/${lib#*/Frameworks/} ;;
+                *) echo "::error::$file loads $lib, from outside the app and macOS"; exit 1 ;;
+              esac
+              if [ ! -f "$need" ]; then
+                echo "::error::$file loads $lib, which isn't in Contents/Frameworks"; exit 1
+              fi
+            done
+          done
+          echo "rpaths: $(rpaths $exe)"
+          otool -L $exe
+          # ...and it starts: --help needs no window; dyld lists what it loaded
+          DYLD_PRINT_LIBRARIES=1 $exe --help > help.txt 2> dyld.txt
+          cat help.txt
+          # (dyld's lines: "dyld[PID]: <UUID> PATH"; the ones from outside macOS)
+          grep -E '^dyld\[[0-9]+\]: (<[^>]*> )?/' dyld.txt |
+            grep -v -E '^dyld\[[0-9]+\]: (<[^>]*> )?/(System/Library|usr/lib)/' || true
+          if ! head -n 1 help.txt | grep -q '^usage: mh4u'; then
+            echo "::error::mh4u --help didn't print the app's usage"; exit 1
+          fi
+          if ! grep -q -E 'MH4U\.app/Contents/(MacOS/\.\./)?Frameworks/libMoltenVK\.dylib' dyld.txt; then
+            echo "::error::mh4u didn't load the app's own MoltenVK"; exit 1
+          fi
+          if grep -E '/opt/homebrew|/usr/local' dyld.txt; then
+            echo "::error::mh4u loaded a library from Homebrew"; exit 1
+          fi
+      - name: Package
+        if: ${{ hashFiles('mh4u/LICENSE') != '' }}
+        run: |
+          pkg=artifacts/mh4u-port-macos
+          mkdir -p $pkg/mh4u-tools
+          cp -R azahar/build/bundle/azahar.app $pkg/Azahar-mh4u.app
+          cp -R azahar/build/bundle/MH4U.app $pkg/MH4U.app
+          cp mh4u/LICENSE $pkg/LICENSE-mh4u-port.txt
+          cp azahar/LICENSE.txt $pkg/LICENSE-azahar.txt
+          # the tools that build the game's code library from the player's own update
+          cp -R mh4u/tools mh4u/config $pkg/mh4u-tools/
+          find $pkg/mh4u-tools -name __pycache__ -prune -exec rm -rf {} +
+          cp mh4u/LICENSE $pkg/mh4u-tools/
+          cp mh4u/port/unix/build-code-library.sh "$pkg/Build code library.command"
+          chmod +x "$pkg/Build code library.command"
+          cat > $pkg/README-mh4u.txt <<EOF
+          The MH4U PC port for Apple silicon Macs: MH4U, the port's own app, and Azahar-mh4u,
+          Azahar ($(cat mh4u/port/azahar/COMMIT)) with the port's recompiled-code CPU backend.
+          Source: https://github.com/${GITHUB_REPOSITORY} (commit ${GITHUB_SHA}),
+          https://github.com/azahar-emu/azahar plus mh4u/port/azahar/azahar.patch.
+          The apps and the script are not notarized: the first time, right-click one and choose
+          Open (on macOS 15 or later, if that only offers Done: try to open it once, then System
+          Settings > Privacy & Security > Open Anyway).
+
+          No game code is included. To play, with your own decrypted Monster Hunter 4 Ultimate
+          (USA) and its v1.3.0 update (.cia):
+          1. The Xcode command-line tools (xcode-select --install in Terminal) and Python 3.10 or
+             newer (python.org or Homebrew).
+          2. Open MH4U. The first time its launcher opens on Setup: choose your game (the
+             decrypted .3ds, .cci or .cxi) and your v1.3.0 update .cia; it installs the update and
+             builds the game's code library on this Mac (several minutes). "Build code
+             library.command" does the same build in Terminal, if you prefer.
+          3. Play: PLAY on the launcher (Return, or A on a controller). In the game, Esc (or the
+             controller's Home/Guide button, or Back and Start together) opens the menu: the
+             game's options, the display, sound, controls, the room you're in, quit.
+
+          MH4U opens the game full screen, with the keyboard, a controller (mapped on its own, like
+          MH3U on a Wii U) and the mouse or trackpad as the stylus. Option+Return: full screen or
+          a window (F11 as well, where macOS doesn't take it for Show Desktop). fn+F12, or the
+          right stick's click: in quests, the touch screen's map or the whole touch screen.
+          The launcher's other screens: Mods (several mods, in an order, conflicts shown; a catalog of recommended mods and texture packs, the HD pack among them, installed with one click), Online
+          (a lobby's rooms, joining by address, hosting) and Settings. Its settings are in
+          ~/Library/Application Support/Azahar/mh4u-app.ini, written with explanations the first
+          time it runs: the game file, the renderer (vulkan, on Metal, or
+          software), full screen, the screens, sound, the keys and the controller, and a
+          multiplayer room to join or host before the game starts. The game's options (frame rate,
+          widescreen, the touch screen's corner, ...) are in mh4u.ini next to it; docs/PLAYING.md
+          in the repository has them all. If the app doesn't start, log/mh4u_log.txt in that
+          folder says why.
+
+          Azahar-mh4u stays for what the app can't do yet: installing other CIAs (File > Install
+          CIA...) and Azahar's own settings (system files, the username). It plays the game as well (File > Load
+          File...). Both use ~/Library/Application Support/Azahar: the same saves, code library
+          and mh4u.ini.
+          EOF
+          # the multiplayer servers (server/, when this commit has it): a dedicated room (with an
+          # azahar-room of your own: this package has none) and the lobby
+          if [ -d mh4u/server ]; then
+            mkdir -p $pkg/mh4u-server
+            cp -R mh4u/server/unix/. $pkg/mh4u-server/
+            cp mh4u/server/lobby/*.py $pkg/mh4u-server/
+            if [ -f mh4u/docs/SERVER.md ]; then cp mh4u/docs/SERVER.md $pkg/mh4u-server/; fi
+            chmod +x $pkg/mh4u-server/*.sh
+            cat >> $pkg/README-mh4u.txt <<EOF
+
+          mh4u-server: a room that stays open without anyone playing on that computer (a
+          dedicated room), and a lobby that lists rooms; SERVER.md in that folder explains both.
+          host-room.sh (in Terminal) hosts an MH4U room on Azahar's dedicated room server,
+          azahar-room, which this package doesn't have (SERVER.md says where to get it);
+          run-lobby.sh runs the lobby (Python 3.10 or newer).
+          EOF
+          fi
+          # a zip keeps the apps' symbolic links and permissions, which an artifact upload doesn't
+          (cd artifacts && ditto -c -k --keepParent mh4u-port-macos mh4u-port-macos.zip && rm -rf mh4u-port-macos)
+      - name: Upload
+        if: ${{ hashFiles('mh4u/LICENSE') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mh4u-port-macos
+          path: artifacts/
+          retention-days: 14

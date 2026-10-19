@@ -1,0 +1,145 @@
+{
+ "format": 1,
+ "updated": "2026-10-17",
+ "about": "Mods and texture packs recommended for the MH4U PC port, installed by tools/mods.py install-from-catalog (the launcher's Mods screen, Catalog). Only metadata and the authors' own download links: nothing here is the game or its files. docs/MODS.md says how to suggest a mod and what each field means.",
+ "mods": [
+  {
+   "id": "mh4u-hd",
+   "kind": "textures",
+   "name": "Monster Hunter 4 Ultimate HD",
+   "version": "3.03",
+   "author": "mhondeck and the MH classic HD Project",
+   "category": "HD texture pack",
+   "recommended": true,
+   "description": "The whole game remastered in HD: environments, armor, weapons, monsters, NPCs and the interface (building on MH4HDUI).",
+   "details": "HD v3.0 (about 11 GB) and its latest update roll-up (3.01-3.03), installed together as the author describes: the base pack, its UI folder removed, then the roll-up over it. Credits: Tywald, Aki, Grand Tickler and tbsp (earlier versions), xl3lackout (MH4HDUI), Monkbreh and PixelCover (MHGU HD textures), Kestis, Sisnax.",
+   "region": "USA",
+   "region_note": "The pack's USA build (title 0004000000126300), made with the v1.1 update that the port runs. Play in English: some menus in other languages aren't covered yet.",
+   "license": "No licence stated; shared freely by its author, who asks players to pass it on. Downloaded from the author's own links.",
+   "page_url": "https://mholdschool.com/viewtopic.php?t=1429",
+   "needs": ["custom_textures"],
+   "conflicts": ["mh4hdui"],
+   "size": 12137341510,
+   "installed_size": 11940546010,
+   "note": "A big download (about 12 GB, and as much again free while it unpacks). The author notes that the monsters' HD textures show only with Azahar's New 3DS mode off; the port's app turns it off by itself while custom textures are on.",
+   "downloads": [
+    {
+     "url": "https://www.dropbox.com/scl/fi/azn0yh82si223p9lieam2/0004000000126300.7z?rlkey=yl5gcv8jsgdc70t4osqun8e74&st=6jyt7oew&dl=1",
+     "file": "MH4U-HD-3.0-USA.7z",
+     "size": 11652918162,
+     "archive": "7z"
+    },
+    {
+     "url": "https://www.dropbox.com/scl/fi/abwjqas645nuvm80oc4r0/Latest-Rollup.7z?rlkey=1xk5k4gyys4knto17qwir5lzj&st=thnngf44&dl=1",
+     "file": "MH4U-HD-latest-rollup.7z",
+     "archive": "7z",
+     "delete_first": ["UI"]
+    }
+   ]
+  },
+  {
+   "id": "mh4hdui",
+   "kind": "textures",
+   "name": "MH4HDUI",
+   "version": "",
+   "author": "xl3lackout",
+   "category": "HD interface textures",
+   "description": "The interface redrawn by hand at four times the resolution: the hunting HUD, icons and fonts. A small download, for a sharp interface without the full HD pack.",
+   "details": "A work in progress (the author's estimate: hunting HUD about 90%, icons 50%, fonts 65%, loading screens 20%). Only its UI folder goes into the texture folder, as its readme says.",
+   "region": "USA",
+   "region_note": "Made with MH4U; the author doesn't name a region. Text textures follow the game's language: play in English.",
+   "license": "CC0-1.0 (public domain); the author asks for credit.",
+   "page_url": "https://github.com/xl3lackout/MH4HDUI",
+   "needs": ["custom_textures"],
+   "conflicts": ["mh4u-hd"],
+   "note": "The HD pack already has an updated version of it: install one or the other.",
+   "downloads": [
+    {
+     "url": "https://github.com/xl3lackout/MH4HDUI/archive/16e18e85bf07f54320ffb014712dd47d38c524e9.zip",
+     "file": "MH4HDUI.zip",
+     "archive": "zip",
+     "root": "MH4u/UI",
+     "into": "UI"
+    }
+   ]
+  },
+  {
+   "id": "anco-crafting-100",
+   "kind": "mod",
+   "name": "100% crafting success",
+   "version": "0.0.2",
+   "author": "anco (MH4U quality-of-life project)",
+   "category": "Quality of life",
+   "description": "Every item combination succeeds: no more failed combinations, and no combo books needed for the odds.",
+   "details": "The first patch of anco's project to bring later games' quality-of-life changes to MH4U. A code patch (code.ips) that changes only the game's data, not its code.",
+   "region": "USA",
+   "region_note": "For MH4U USA (0004000000126300) with its v1.1 update. It changes only data, so the port's code library doesn't need building again.",
+   "license": "LGPL-3.0",
+   "page_url": "https://codeberg.org/anco/mh4u_qol",
+   "needs": [],
+   "conflicts": [],
+   "note": "Azahar applies one code patch at a time, so only one code mod of the catalog can be on.",
+   "downloads": [
+    {
+     "url": "https://codeberg.org/anco/mh4u_qol/releases/download/0.0.2/code.ips",
+     "file": "mh4u_qol-0.0.2-code.ips",
+     "size": 824,
+     "sha256": "5ce909d8f7ca16d57b7c99c05789bbaa17776cb0cf78311e5bc6d83a0e7a611a",
+     "archive": "file",
+     "as": "exefs/code.ips"
+    }
+   ]
+  },
+  {
+   "id": "cb-fast-morph-gp",
+   "kind": "mod",
+   "name": "Charge Blade: Fast Morph Guard Point",
+   "version": "4",
+   "author": "JackUnderTheHood",
+   "category": "Gameplay",
+   "description": "A Guard Point on the Charge Blade's Fast Morph Slash, also the directional one, keeping its animation, movement and follow-ups; red-shield phial bursts work.",
+   "details": "Tested by its author on Azahar (USA v1.1 runtime validation). A code patch that changes the game's code and adds new code after it (a \"code cave\").",
+   "region": "USA",
+   "region_note": "Its USA v1.1 build (0004000000126300), the update the port runs.",
+   "license": "CC BY-NC-SA 4.0. Downloading and installing it is allowed; ask the author before sharing it elsewhere.",
+   "page_url": "https://gamebanana.com/mods/703777",
+   "conflicts": [],
+   "note": "It changes the game's code and adds new code after it: build the code library again with it on (the launcher offers to); until then the game runs on Azahar's own CPU emulation. Only one code mod can be on at a time.",
+   "downloads": [
+    {
+     "url": "https://gamebanana.com/dl/1787129",
+     "file": "mh4u_usa_v11_cb_fast_morph_gp_v4_azahar.zip",
+     "size": 3878,
+     "sha256": "00d3dd17dd9367b00d5f690e22c8bf8deae4293ad6551c92727eeb0aa0aa5c9e",
+     "archive": "zip"
+    }
+   ]
+  },
+  {
+   "id": "weapon-honing-life",
+   "kind": "mod",
+   "name": "Weapon Honing: Life rework (with Charge Blade Guard Points)",
+   "version": "6",
+   "author": "JackUnderTheHood",
+   "category": "Gameplay",
+   "description": "Weapon Honing: Life heals like MHW's Health Regen augment: 7.5% of the damage of each eligible hit, with a short green glow. Includes both Charge Blade Guard Point mods (Fast Morph and Charged Double Slash).",
+   "details": "Replaces Life's 18-second cooldown and 30% chance with a heal on every eligible hit (0.2-second shared cooldown, at least 1 HP). Tested by its author on Azahar and on a 3DS.",
+   "region": "USA",
+   "region_note": "Its USA v1.1 build (0004000000126300), the update the port runs.",
+   "license": "CC BY-NC-SA 4.0. Downloading and installing it is allowed; ask the author before sharing it elsewhere.",
+   "page_url": "https://gamebanana.com/mods/711049",
+   "conflicts": [],
+   "note": "It already has both Guard Point mods: don't turn the Fast Morph one on with it (only one code mod can be on anyway). It changes the game's code and adds new code after it: build the code library again with it on (the launcher offers to); until then the game runs on Azahar's own CPU emulation.",
+   "downloads": [
+    {
+     "url": "https://gamebanana.com/dl/1800718",
+     "file": "mh4u_usa_v11_weapon_honing_life_v6_merged_gp_azahar_luma.zip",
+     "size": 6323,
+     "sha256": "cf48fb02e7427614eed31f88ba52fbb5a9b19bdda26265a31d3dadc94a3074ac",
+     "archive": "zip",
+     "root": "Azahar"
+    }
+   ]
+  }
+ ]
+}

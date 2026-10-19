@@ -1,0 +1,45 @@
+name: Release
+
+# Publishes a GitHub release with the Windows, Linux and macOS packages that the build workflows
+# made from one commit (by default the newest commit all three built successfully), so that
+# players can download them without a GitHub account. Run it by hand: Actions -> Release ->
+# Run workflow, with a tag such as v0.1.0. The packages contain no game code (each player builds
+# the game's code library from their own dump); the release notes are .github/release-notes.md.
+# Build artifacts are kept for 14 days, so release a commit within that time of its builds.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v0.1.0"
+        required: true
+      commit:
+        description: "Commit to release (empty: the newest one the three build workflows built)"
+        required: false
+        default: ""
+      prerelease:
+        description: "Mark it as a pre-release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+      - name: Package and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          COMMIT: ${{ inputs.commit }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          flags=()
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          .github/release.sh "$TAG" $COMMIT "${flags[@]}"

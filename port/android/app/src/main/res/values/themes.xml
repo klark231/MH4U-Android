@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- the window behind Compose: the port's window colour, so nothing flashes white -->
+    <style name="Theme.MH4U" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#121214</item>
+        <item name="android:statusBarColor">#121214</item>
+        <item name="android:navigationBarColor">#121214</item>
+        <item name="android:colorAccent">#EBA133</item>
+    </style>
+</resources>

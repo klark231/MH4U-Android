@@ -1,0 +1,52 @@
+name: Bug report
+description: Something in the port doesn't work (setup, the game, multiplayer, mods)
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! Before posting, please check:
+        - **No game files** here (ROM, code.bin, RomFS, screenshots of a decompiler), and nothing about where to get the game.
+        - **Remove personal details** from the log: your user name in folder paths, and any room invite (`mh4u://...`), which contains your IP address and the room's password.
+  - type: input
+    id: version
+    attributes:
+      label: Package and version
+      placeholder: "Windows package v0.1.2 / built from main at <commit>"
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: OS, CPU and GPU
+      placeholder: "Windows 11, Ryzen 5 5600X, RX 6700 XT"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where it happens
+      options: [Setup / first build, Starting the game, In the game, Multiplayer, Mods, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What you did and what happened
+      description: The steps just before the problem, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: "Close the game first, then attach mh4u_log.txt from Azahar's log folder (%APPDATA%\\Azahar\\log on Windows). Drag the file here."
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I play from my own dump (USA version with the v1.3.0 update).
+          required: true
+        - label: I removed my user name and any room invite from what I posted.
+          required: true

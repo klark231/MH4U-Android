@@ -1,0 +1,13 @@
+# Every change is reviewed by the maintainer. The paths below matter most: a change to them
+# reaches every player's PC (the mod catalog is fetched live from main; the tools download and
+# run a compiler and mods) or decides what CI lets through.
+*                               @CompaLarios18
+
+/tools/mods_catalog.json        @CompaLarios18
+/tools/mods.py                  @CompaLarios18
+/tools/sevenzip.py              @CompaLarios18
+/tools/build_game.py            @CompaLarios18
+/tools/check_no_game_data.py    @CompaLarios18
+/config/large_files.txt         @CompaLarios18
+/.github/                       @CompaLarios18
+/server/                        @CompaLarios18

@@ -1,0 +1,6 @@
+# The build gets only the Azahar commit, the port's patch and the entrypoint: a checkout's
+# baserom/ and build/ hold game data
+*
+!port/azahar/COMMIT
+!port/azahar/azahar.patch
+!server/docker/room-entrypoint.sh

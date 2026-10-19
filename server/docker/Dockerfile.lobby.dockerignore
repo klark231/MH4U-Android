@@ -1,0 +1,3 @@
+# The build gets only the lobby script: a checkout's baserom/ and build/ hold game data
+*
+!server/lobby/mh4u_lobby.py

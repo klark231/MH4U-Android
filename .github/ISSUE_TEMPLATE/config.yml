@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security problem
+    url: https://github.com/CompaLarios18/MH4UltimateDC/security/advisories/new
+    about: Report it privately, not in a public issue (see SECURITY.md).
+  - name: Common questions
+    url: https://github.com/CompaLarios18/MH4UltimateDC/blob/main/FAQ.md
+    about: Setup, Smart App Control, save states, online, mods.

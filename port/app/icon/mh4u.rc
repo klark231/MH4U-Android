@@ -1,0 +1,30 @@
+// Windows resources of mh4u.exe: the icon Explorer and the taskbar show, and the version
+// information in the file's Properties. Compiled by windres (port/app/CMakeLists.txt).
+#include <winver.h>
+
+1 ICON "icon/mh4u.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 0,1,2,0
+PRODUCTVERSION 0,1,2,0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "MH4U PC port"
+            VALUE "FileVersion", "0.1.2"
+            VALUE "InternalName", "mh4u"
+            VALUE "LegalCopyright", "GPL-3.0-or-later; no game data included"
+            VALUE "OriginalFilename", "mh4u.exe"
+            VALUE "ProductName", "MH4U PC port"
+            VALUE "ProductVersion", "0.1.2"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

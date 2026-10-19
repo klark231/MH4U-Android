@@ -1,0 +1,9 @@
+# Tunables: instructions whose immediate operand the port can change at run time
+# (tools/recompile.py makes them read rc_tunables[]; port/src/hooks.cpp sets them).
+# USA v1.3.0. Format: <address> <original immediate> <name>  # what it is
+#
+# top_rows: the top screen's width in the scene target, in framebuffer rows (400). Wide
+# render (mh4u.ini wide_render = 1) sets these to W (424 for 16:9); docs/research/widescreen.md.
+0x005de49c 400 top_rows    # full-screen pass with an 8-pixel border: clamp of its far edge (cmp)
+0x005de4a0 400 top_rows    #   same clamp (movgt)
+0x00af0c84 400 top_rows    # sCamera::Viewport::setupDraw, mode 0xa (virtual rect) on the top screen

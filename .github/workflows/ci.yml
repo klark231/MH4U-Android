@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: ARM cross toolchain for difftest
+        run: sudo apt-get update && sudo apt-get install -y clang lld llvm
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+      - name: Refuse committed game data
+        run: |
+          if git ls-files | grep -Ei '\.(3ds|cci|cia|cxi|cfa|arc|sav)$|(^|/)(code|exheader|romfs|exefs)\.bin$|^baserom/'; then
+            echo "::error::Game data must never be committed (see docs/LEGAL.md)"; exit 1
+          fi

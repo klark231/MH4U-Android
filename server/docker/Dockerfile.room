@@ -1,0 +1,49 @@
+# Azahar's dedicated room server (azahar-room) for MH4U's online play, built from Azahar's source
+# at the commit the port uses (port/azahar/COMMIT) with the port's patch (port/azahar/azahar.patch,
+# which carries the port's fixes to Azahar's rooms), and with Azahar's web service so that it can
+# announce itself to a lobby. As in Azahar's own docker/azahar-room/Dockerfile, but building only
+# the room. No game code is involved: a room only relays the players' local-wireless traffic.
+#
+# From the repository's top folder (compose.yaml next to this file does all this for you):
+#   docker build -f server/docker/Dockerfile.room -t mh4u-room .
+#   docker run -d -p 24872:24872/udp -v mh4u-room:/data -e ROOM_NAME="My Hall" mh4u-room
+# Settings: environment variables (room-entrypoint.sh lists them); ROOM_PORT must be the same
+# number inside and outside the container, because the room tells the lobby its own port.
+# --build-arg AZAHAR_COMMIT=<commit> builds another commit (the port's patch must apply to it).
+# Only port/azahar/COMMIT, the patch and the entrypoint go into the build
+# (Dockerfile.room.dockerignore), never the game data a checkout may hold in baserom/ or build/.
+
+# --- Build, in the environment Azahar's CI and this repository's workflows use. Its only tag is
+# "latest", so it is pinned to the image of October 2026 (docker buildx imagetools inspect
+# opensauce04/azahar-build-environment:latest gives the newest digest) ---
+ARG BUILD_IMAGE=opensauce04/azahar-build-environment:latest@sha256:b62af13c7c6bf17bb530aa56ce67458f1cfba44379055865af0d12fbd060e2cd
+FROM ${BUILD_IMAGE} AS build
+USER root
+ARG AZAHAR_COMMIT=
+COPY port/azahar/COMMIT port/azahar/azahar.patch /tmp/
+RUN git clone https://github.com/azahar-emu/azahar.git /src \
+ && git -C /src checkout "${AZAHAR_COMMIT:-$(cat /tmp/COMMIT)}" \
+ && git -C /src submodule update --init --recursive --depth 1 \
+ && git -C /src apply /tmp/azahar.patch
+RUN cmake -S /src -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_LTO=OFF \
+        -DENABLE_QT=OFF -DENABLE_GDBSTUB=OFF -DENABLE_TESTS=OFF \
+        -DENABLE_ROOM=ON -DENABLE_ROOM_STANDALONE=ON -DENABLE_WEB_SERVICE=ON \
+ && cmake --build /build --target citra_room_standalone \
+ && strip -s /build/bin/Release/azahar-room
+
+# --- Run: the room, and a script that starts it from environment variables ---
+FROM debian:trixie-slim
+RUN useradd --system --uid 10001 --create-home --home-dir /data room
+COPY --from=build /build/bin/Release/azahar-room /usr/local/bin/azahar-room
+COPY server/docker/room-entrypoint.sh /usr/local/bin/room-entrypoint
+# (the line endings of a Windows checkout would break the script; --version fails the build here
+# if the room is missing a library)
+RUN sed -i 's/\r$//' /usr/local/bin/room-entrypoint \
+ && chmod 755 /usr/local/bin/room-entrypoint \
+ && azahar-room --version
+
+USER room
+WORKDIR /data
+VOLUME /data
+EXPOSE 24872/udp
+ENTRYPOINT ["room-entrypoint"]

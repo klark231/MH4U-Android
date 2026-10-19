@@ -1,0 +1,54 @@
+name: game-data-guard
+
+# Refuses game data, and files derived from it, in every commit a push or a pull request brings
+# (not only in the final tree): ROM and RomFS names, build/ baserom/ export/, traces, captures,
+# hex dumps, disassembly listings, binary files and dense blobs. See tools/check_no_game_data.py
+# for the rules and config/large_files.txt for the few files of ours that are exempt.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# nothing here writes to the repository or uses a secret
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false   # the token is not left in .git/config for the script below
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Refuse game data in the proposed commits
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          set -eu
+          if [ "$EVENT" = "pull_request" ]; then
+            range="$PR_BASE...$PR_HEAD"
+          elif echo "$PUSH_BEFORE" | grep -Eq '^0+$' || ! git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+            # a forced push that dropped the old tip: check the whole history
+            range="$(git rev-list --max-parents=0 "$PUSH_AFTER" | tail -n1)..$PUSH_AFTER"
+          else
+            range="$PUSH_BEFORE..$PUSH_AFTER"
+          fi
+          echo "checking $range"
+          # On a PR the script is the base branch's own, so a PR cannot weaken the script that
+          # judges it. The allowlist (config/large_files.txt, path + SHA-256 per entry) is still
+          # the PR's: review every change to it. Until the base has the script, the PR's is used.
+          guard=tools/check_no_game_data.py
+          if [ "$EVENT" = "pull_request" ] && git cat-file -e "$PR_BASE:$guard" 2>/dev/null; then
+            git show "$PR_BASE:$guard" > "$RUNNER_TEMP/check_no_game_data.py"
+            guard="$RUNNER_TEMP/check_no_game_data.py"
+          fi
+          python3 "$guard" --repo . --range "$range"

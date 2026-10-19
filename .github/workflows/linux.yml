@@ -1,0 +1,183 @@
+name: Linux build
+
+# Azahar at the commit in port/azahar/COMMIT, with port/azahar/azahar.patch and the port's
+# CPU backend, built as an AppImage the way Azahar's own CI builds its Linux release, and the
+# port's own app (port/app, mh4u) as a second AppImage made the same way. They contain no game
+# code: the game's code library is made on the player's machine from their own dump
+# (tools/build_game.py) and loaded at run time. Published under the repository's licence
+# (GPL-3.0-or-later, like Azahar) with the matching source (this repository at the built
+# commit, Azahar at port/azahar/COMMIT plus port/azahar/azahar.patch). The headless
+# mh4u_runner isn't included: outside the AppImage it needs the libraries the AppImage bundles.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "port/**"
+      - "tools/**"
+      - "config/**"
+      - "server/**"
+      - ".github/workflows/linux.yml"
+
+jobs:
+  appimage:
+    runs-on: ubuntu-latest
+    container:
+      image: opensauce04/azahar-build-environment:latest@sha256:b62af13c7c6bf17bb530aa56ce67458f1cfba44379055865af0d12fbd060e2cd   # pinned: the release packages are built in it
+      options: -u 1001
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_COMPILERCHECK: content
+      CCACHE_SLOPPINESS: time_macros
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mh4u
+      - name: Azahar at the pinned commit, with the port's patch
+        run: |
+          git clone https://github.com/azahar-emu/azahar.git azahar
+          cd azahar
+          git checkout "$(cat ../mh4u/port/azahar/COMMIT)"
+          git submodule update --init --recursive --depth 1
+          git apply ../mh4u/port/azahar/azahar.patch
+      - name: Compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: linux-${{ hashFiles('mh4u/port/azahar/COMMIT') }}-${{ github.sha }}
+          restore-keys: linux-${{ hashFiles('mh4u/port/azahar/COMMIT') }}-
+      - name: Build
+        env:
+          # the Qt Wayland plugins Azahar bundles in its own AppImage
+          EXTRA_QT_PLUGINS: waylandcompositor
+          EXTRA_PLATFORM_PLUGINS: libqwayland-egl.so;libqwayland-generic.so
+        run: |
+          mkdir -p azahar/build && cd azahar/build
+          cmake .. -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_LINKER=/etc/bin/ld.lld \
+            -DENABLE_ROOM_STANDALONE=OFF \
+            -DENABLE_TESTS=OFF \
+            -DMH4U_PORT_DIR="${GITHUB_WORKSPACE}/mh4u/port"
+          ninja
+          strip -s bin/Release/*
+          ninja bundle
+          ccache -s
+      - name: The app's AppImage (mh4u.AppImage)
+        working-directory: azahar/build
+        run: |
+          # An AppImage of its own (an AppImage starts one program, and double-clicked this one
+          # is the game), made the way the bundle target made Azahar's: with the linuxdeploy it
+          # fetched and the same checkrt plugin, without Qt. The port's own icon.
+          cat > mh4u.desktop <<EOF
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=MH4U PC port
+          Comment=Monster Hunter 4 Ultimate on Azahar's 3DS core, with the game's code recompiled
+          Icon=mh4u
+          Exec=mh4u %f
+          Terminal=false
+          Categories=Game;
+          StartupWMClass=mh4u
+          EOF
+          cp ../../mh4u/port/app/icon/mh4u.svg mh4u.svg
+          linuxdeploy=externals/linuxdeploy/squashfs-root/AppRun
+          "$linuxdeploy" --plugin checkrt --executable bin/Release/mh4u \
+            --desktop-file mh4u.desktop --icon-file mh4u.svg --appdir AppDir-mh4u
+          OUTPUT=bundle/mh4u.AppImage "$linuxdeploy" --output appimage --appdir AppDir-mh4u
+          ls -l bundle
+          # it starts from the AppImage (--help needs no display)
+          usage=$(bundle/mh4u.AppImage --appimage-extract-and-run --help)
+          echo "$usage"
+          case "$usage" in
+            "usage: mh4u"*) ;;
+            *) echo "::error::mh4u.AppImage --help didn't print the app's usage"; exit 1 ;;
+          esac
+      - name: Package
+        if: ${{ hashFiles('mh4u/LICENSE') != '' }}
+        run: |
+          pkg=artifacts/mh4u-port-linux
+          mkdir -p $pkg/mh4u-tools
+          # by name: the bundle folder has both AppImages
+          cp azahar/build/bundle/azahar.AppImage $pkg/azahar-mh4u.AppImage
+          cp azahar/build/bundle/mh4u.AppImage $pkg/mh4u.AppImage
+          cp mh4u/LICENSE $pkg/LICENSE-mh4u-port.txt
+          cp azahar/LICENSE.txt $pkg/LICENSE-azahar.txt
+          # the tools that build the game's code library from the player's own update
+          cp -r mh4u/tools mh4u/config $pkg/mh4u-tools/
+          find $pkg/mh4u-tools -name __pycache__ -prune -exec rm -rf {} +
+          cp mh4u/LICENSE $pkg/mh4u-tools/
+          cp mh4u/port/unix/build-code-library.sh $pkg/
+          chmod +x $pkg/build-code-library.sh $pkg/azahar-mh4u.AppImage $pkg/mh4u.AppImage
+          cat > $pkg/README-mh4u.txt <<EOF
+          The MH4U PC port for Linux (x86-64): mh4u.AppImage, the port's own app, and
+          azahar-mh4u.AppImage, Azahar ($(cat mh4u/port/azahar/COMMIT)) with the port's
+          recompiled-code CPU backend.
+          Source: https://github.com/${GITHUB_REPOSITORY} (commit ${GITHUB_SHA}),
+          https://github.com/azahar-emu/azahar plus mh4u/port/azahar/azahar.patch.
+
+          No game code is included. To play, with your own decrypted Monster Hunter 4 Ultimate
+          (USA) and its v1.3.0 update (.cia):
+          1. Python 3.10 or newer (most distributions have it; on a Steam Deck too).
+          2. Run ./mh4u.AppImage (or double-click it). The first time its launcher opens on
+             Setup: choose your game (the decrypted .3ds, .cci or .cxi; the file dialog is zenity
+             or kdialog, or start it with the game as its argument) and your v1.3.0 update .cia;
+             it installs the update and builds the game's code library on this computer (with
+             clang if installed, otherwise it downloads Zig's C compiler, about 80 MB).
+             ./build-code-library.sh does the same build from a terminal, if you prefer.
+          3. Play: PLAY on the launcher (Enter, or A on a controller). In the game, Esc (or the
+             controller's Guide button, or Back and Start together) opens the menu: the game's
+             options, the display, sound, controls, the room you're in, quit.
+
+          mh4u.AppImage opens the game full screen, with the keyboard, a controller (mapped on its
+          own, like MH3U on a Wii U) and the mouse as the stylus. F11 or Alt+Enter: full screen or
+          a window. F12, or the right stick's click: in quests, the touch screen's map or the
+          whole touch screen.
+          The launcher's other screens: Mods (several mods, in an order, conflicts shown; a catalog of recommended mods and texture packs, the HD pack among them, installed with one click), Online
+          (a lobby's rooms, joining by address, hosting) and Settings. Its settings are in
+          ~/.local/share/azahar-emu/mh4u-app.ini, written with explanations the first time it
+          runs: the game file, the renderer (vulkan, opengl or software), full
+          screen, the screens, sound, the keys and the controller, and a multiplayer room to join
+          or host before the game starts. The game's options (frame rate, widescreen, the touch
+          screen's corner, ...) are in mh4u.ini next to it; docs/PLAYING.md in the repository has
+          them all. If the app doesn't start, ~/.local/share/azahar-emu/log/mh4u_log.txt says why.
+
+          azahar-mh4u.AppImage stays for what the app can't do yet: installing other CIAs (File >
+          Install CIA...) and Azahar's own settings (Emulation > Configure...: system files, the
+          username).
+          It plays the game as well (File > Load File...). Both use ~/.local/share/azahar-emu: the
+          same saves, code library and mh4u.ini.
+
+          The artifact zip doesn't keep file permissions: if the files don't start, run
+          chmod +x mh4u.AppImage azahar-mh4u.AppImage build-code-library.sh first.
+          EOF
+          # the multiplayer servers (server/, when this commit has it): a dedicated room (with an
+          # azahar-room of your own: this package has none) and the lobby
+          if [ -d mh4u/server ]; then
+            mkdir -p $pkg/mh4u-server
+            cp -r mh4u/server/unix/. $pkg/mh4u-server/
+            cp mh4u/server/lobby/*.py $pkg/mh4u-server/
+            if [ -f mh4u/docs/SERVER.md ]; then cp mh4u/docs/SERVER.md $pkg/mh4u-server/; fi
+            chmod +x $pkg/mh4u-server/*.sh
+            cat >> $pkg/README-mh4u.txt <<EOF
+
+          mh4u-server: a room that stays open without anyone playing on that computer (a
+          dedicated room), and a lobby that lists rooms; SERVER.md in that folder explains both.
+          host-room.sh hosts an MH4U room on Azahar's dedicated room server, azahar-room, which
+          this package doesn't have (SERVER.md says where to get it); run-lobby.sh runs the lobby
+          (Python 3.10 or newer).
+          EOF
+          fi
+      - name: Upload
+        if: ${{ hashFiles('mh4u/LICENSE') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mh4u-port-linux
+          path: artifacts/
+          retention-days: 14

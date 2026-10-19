@@ -1,0 +1,178 @@
+name: Windows build
+
+# Azahar at the commit in port/azahar/COMMIT, with port/azahar/azahar.patch and the port's
+# CPU backend, cross-compiled for Windows with MXE the way Azahar's own CI does it, and the
+# port's own app (port/app, mh4u.exe) next to azahar.exe. It contains no game code: the game's
+# code library is made on the player's machine from their own dump (tools/build_game.py) and
+# loaded at run time.
+#
+# The build is uploaded as an artifact only once the repository has a LICENSE: Azahar is
+# GPL-3.0-or-later, so binaries can only be shared under that licence.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "port/**"
+      - "tools/**"
+      - "config/**"
+      - "server/**"
+      - ".github/workflows/windows.yml"
+
+jobs:
+  mxe:
+    runs-on: ubuntu-latest
+    container:
+      image: opensauce04/azahar-build-environment:latest@sha256:b62af13c7c6bf17bb530aa56ce67458f1cfba44379055865af0d12fbd060e2cd   # pinned: the release packages are built in it
+      options: -u 1001
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_COMPILERCHECK: content
+      CCACHE_SLOPPINESS: time_macros
+      # where Azahar's build looks for the DLLs its programs need (dllwalker)
+      MXE_DLL_DIRS: >-
+        /opt/mxe/usr/x86_64-w64-mingw32.shared/bin/
+        /opt/mxe/usr/x86_64-w64-mingw32.shared/qt6/bin/
+        /opt/mxe/usr/x86_64-w64-mingw32.shared/x86_64-w64-mingw32/bin/
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mh4u
+      - name: Azahar at the pinned commit, with the port's patch
+        run: |
+          git clone https://github.com/azahar-emu/azahar.git azahar
+          cd azahar
+          git checkout "$(cat ../mh4u/port/azahar/COMMIT)"
+          git submodule update --init --recursive --depth 1
+          git apply ../mh4u/port/azahar/azahar.patch
+      - name: Compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: mxe-${{ hashFiles('mh4u/port/azahar/COMMIT') }}-${{ github.sha }}
+          restore-keys: mxe-${{ hashFiles('mh4u/port/azahar/COMMIT') }}-
+      - name: Build
+        run: |
+          export PATH="/opt/mxe/usr/bin:${PATH}"
+          mkdir -p azahar/build && cd azahar/build
+          x86_64-w64-mingw32.shared-cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER_AR=x86_64-w64-mingw32.shared-ar \
+            -DCMAKE_CXX_COMPILER_RANLIB=x86_64-w64-mingw32.shared-ranlib \
+            -DENABLE_TESTS=OFF \
+            -DMH4U_PORT_DIR="${GITHUB_WORKSPACE}/mh4u/port"
+          x86_64-w64-mingw32.shared-cmake --build . -- -j"$(nproc)"
+          x86_64-w64-mingw32.shared-strip -s bin/Release/*.exe
+          make bundle
+          cp bin/Release/mh4u_runner.exe bin/Release/mh4u.exe bundle/
+          # the bundle has the DLLs Azahar's build found for azahar.exe (with dllwalker); the
+          # app's are found the same way, in case it needs one that azahar.exe doesn't
+          ../externals/dllwalker/dllwalker.rb bin/Release/mh4u.exe $MXE_DLL_DIRS bin/Release/ > mh4u_dlls.txt
+          while IFS= read -r dll; do
+            if [ ! -e "bundle/$(basename "$dll")" ]; then
+              echo "mh4u.exe also needs $(basename "$dll")"
+              cp "$dll" bundle/
+            fi
+          done < mh4u_dlls.txt
+          ccache -s
+      - name: Package
+        if: ${{ hashFiles('mh4u/LICENSE') != '' }}
+        run: |
+          pkg=artifacts/mh4u-port-windows
+          mkdir -p $pkg/mh4u-tools
+          cp -r azahar/build/bundle/* $pkg/
+          cp mh4u/LICENSE $pkg/LICENSE-mh4u-port.txt
+          cp azahar/LICENSE.txt $pkg/LICENSE-azahar.txt
+          # the tools that make the game's code library on the player's PC, and a script for them
+          cp -r mh4u/tools mh4u/config $pkg/mh4u-tools/
+          find $pkg/mh4u-tools -name __pycache__ -prune -exec rm -rf {} +
+          cp mh4u/LICENSE $pkg/mh4u-tools/
+          cp mh4u/port/windows/build-code-library.ps1 "mh4u/port/windows/Build code library.bat" $pkg/
+          cat > $pkg/README-mh4u.txt <<EOF
+          The MH4U PC port for Windows: mh4u.exe, the port's own app, and azahar.exe, Azahar
+          ($(cat mh4u/port/azahar/COMMIT)) with the port's recompiled-code CPU backend.
+          Source: https://github.com/${GITHUB_REPOSITORY} (commit ${GITHUB_SHA}),
+          https://github.com/azahar-emu/azahar plus mh4u/port/azahar/azahar.patch.
+
+          No game code is included. To play, with your own decrypted Monster Hunter 4 Ultimate
+          (USA) and its v1.3.0 update (.cia):
+          1. Install Python 3.10 or newer (https://www.python.org/downloads/, tick "Add python.exe
+             to PATH").
+          2. Double-click mh4u.exe. The first time its launcher opens on Setup: choose your game
+             (the decrypted .3ds, .cci or .cxi) and your v1.3.0 update .cia; it installs the
+             update and builds the game's code library on this PC (the first time it downloads the
+             C compiler, about 180 MB; the build takes several minutes). "Build code library.bat"
+             does the same from a console window, if you prefer.
+          3. Play: PLAY on the launcher (Enter, or A on a controller). In the game, Esc (or the
+             controller's Guide button, or Back and Start together) opens the menu: the game's
+             options, the display, sound, controls, the room you're in, quit.
+
+          mh4u.exe opens the game full screen, with the keyboard, a controller (mapped on its own,
+          like MH3U on a Wii U) and the mouse as the stylus. F11 or Alt+Enter: full screen or a
+          window. F12, or the right stick's click: in quests, the touch screen's map or the whole
+          touch screen.
+          The launcher's other screens: Mods (several mods, in an order, conflicts shown; a catalog of recommended mods and texture packs, the HD pack among them, installed with one click), Online
+          (a lobby's rooms, joining by address, hosting) and Settings. Its settings are in
+          %APPDATA%\Azahar\mh4u-app.ini, written with explanations the first time it runs: the game file, the renderer (vulkan, opengl or software), full screen, the
+          screens, sound, the keys and the controller, and a multiplayer room to join or host
+          before the game starts. The game's options (frame rate, widescreen, the touch screen's
+          corner, ...) are in mh4u.ini next to it; docs/PLAYING.md in the repository has them
+          all. If the app doesn't start, %APPDATA%\Azahar\log\mh4u_log.txt says why.
+
+          azahar.exe stays for what the app can't do yet: installing other CIAs (File > Install
+          CIA...) and Azahar's own settings (Emulation > Configure...: system files, the
+          username). It plays the
+          game as well (File > Load File...). Both use %APPDATA%\Azahar: the same saves, code
+          library and mh4u.ini.
+
+          Multiplayer (Gathering Hall > Local Play, over the internet):
+          - Everyone: a name of your own, nickname = ... in mh4u-app.ini (or Emulation >
+            Configure > System > Username in azahar.exe).
+          - One player hosts: host = 24872 in mh4u-app.ini (or in azahar.exe: Multiplayer >
+            Create Room, Unlisted, port 24872). The others must reach UDP port 24872 on the host's
+            PC: forward it on the host's router, or put all PCs in one virtual network
+            (Tailscale, ZeroTier, Radmin VPN).
+          - The others: join = the host's address in mh4u-app.ini (or in azahar.exe: Multiplayer >
+            Direct Connect to Room, with the host's address and port).
+          EOF
+          # the multiplayer servers (server/, when this commit has it): a dedicated room on
+          # azahar-room.exe, which host-room.ps1 finds in the folder above it, and the lobby
+          if [ -d mh4u/server ]; then
+            mkdir -p $pkg/mh4u-server
+            cp -r mh4u/server/windows/. $pkg/mh4u-server/
+            cp mh4u/server/lobby/*.py $pkg/mh4u-server/
+            if [ -f mh4u/docs/SERVER.md ]; then cp mh4u/docs/SERVER.md $pkg/mh4u-server/; fi
+            cat >> $pkg/README-mh4u.txt <<EOF
+
+          mh4u-server: a room that stays open without anyone playing on that PC (a dedicated
+          room), and a lobby that lists rooms; SERVER.md in that folder explains both. "Host
+          room.bat" hosts an MH4U room on Azahar's dedicated room server (azahar-room.exe, in this
+          folder) on UDP port 24872; "Run lobby.bat" runs the lobby (Python 3.10 or newer).
+          EOF
+          fi
+          # every DLL the programs need from MXE or the build (OpenAL32.dll) is in the package;
+          # the others are Windows' own
+          export PATH="/opt/mxe/usr/bin:${PATH}"
+          for exe in azahar.exe mh4u.exe mh4u_runner.exe; do
+            test -f "$pkg/$exe" || { echo "::error::$exe isn't in the package"; exit 1; }
+            dlls=$(azahar/externals/dllwalker/dllwalker.rb "$pkg/$exe" $MXE_DLL_DIRS azahar/build/bin/Release/)
+            for dll in $dlls; do
+              if [ ! -f "$pkg/$(basename "$dll")" ]; then
+                echo "::error::$exe needs $(basename "$dll"), which isn't in the package"
+                exit 1
+              fi
+            done
+            echo "$exe: $(echo $dlls | wc -w) DLLs from MXE and the build, all in the package"
+          done
+      - name: Upload
+        if: ${{ hashFiles('mh4u/LICENSE') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mh4u-port-windows
+          path: artifacts/
+          retention-days: 14

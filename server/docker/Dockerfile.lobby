@@ -1,0 +1,26 @@
+# The MH4U lobby server (server/lobby/mh4u_lobby.py): Python's standard library, nothing else.
+# Its state (names, keys) lives in the volume at /data: keep it across updates.
+#
+# From the repository's top folder (compose.yaml next to this file does all this for you):
+#   docker build -f server/docker/Dockerfile.lobby -t mh4u-lobby .
+#   docker run -d --name mh4u-lobby -p 24872:24872 -v mh4u-lobby:/data mh4u-lobby [--mode invite]
+#   docker exec mh4u-lobby mh4u-lobby add-user "Hunter One"     (prints that name's token)
+# Options go after the image name; keep the lobby on port 24872 inside the container (map
+# another one with -p) for the health check. Only mh4u_lobby.py goes into the build
+# (Dockerfile.lobby.dockerignore), never the game data a checkout may hold in baserom/ or build/.
+FROM python:3.13-slim
+
+COPY server/lobby/mh4u_lobby.py /opt/mh4u/mh4u_lobby.py
+# "mh4u-lobby" runs it (written here, so whatever line endings the checkout has don't matter)
+RUN printf '#!/bin/sh\nexec python3 /opt/mh4u/mh4u_lobby.py "$@"\n' >/usr/local/bin/mh4u-lobby \
+ && chmod 755 /usr/local/bin/mh4u-lobby \
+ && useradd --system --uid 10001 --create-home --home-dir /data lobby
+
+USER lobby
+ENV MH4U_LOBBY_DATA=/data PYTHONUNBUFFERED=1
+VOLUME /data
+EXPOSE 24872/tcp
+# (/health answers "ok" and, asked from the container itself, stays out of the log)
+HEALTHCHECK --interval=5s --timeout=3s --start-period=60s --retries=3 \
+    CMD ["python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:24872/health', timeout=2)"]
+ENTRYPOINT ["mh4u-lobby"]
