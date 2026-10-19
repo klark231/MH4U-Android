@@ -71,7 +71,7 @@ fun Tabs(titles: List<String>, selected: Int, onSelect: (Int) -> Unit) {
     ScrollableTabRow(
         selectedTabIndex = selected, containerColor = Mh4uColors.TitleBg, edgePadding = 8.dp,
         indicator = { positions ->
-            TabRowDefaults.SecondaryIndicator(Modifier.tabIndicatorOffset(positions[selected]), color = Mh4uColors.Amber)
+            TabRowDefaults.SecondaryIndicator(with(TabRowDefaults) { Modifier.tabIndicatorOffset(positions[selected]) }, color = Mh4uColors.Amber)
         },
         divider = {},
     ) {
