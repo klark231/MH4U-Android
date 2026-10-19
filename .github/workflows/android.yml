@@ -8,11 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       azahar_repo:
-        description: "AzaharPlus repo the patch was written against"
-        default: "https://github.com/AzaharPlus/AzaharPlus.git"
+        description: "AzaharPlus fork the patch was written against (owner/name)"
+        default: "klark231/AzaharPlus"
       azahar_ref:
         description: "Branch, tag or commit of that repo"
-        default: "master"
+        default: "locale-translations"
   push:
     tags: ["android-v*"]
 
@@ -33,14 +33,26 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android/sdk/ndk /opt/hostedtoolcache/CodeQL
           df -h /
 
-      - name: AzaharPlus + the port's Android patch
+      # If the fork is private, add a secret AZAHAR_TOKEN (a fine-grained token with
+      # read access to contents of that repo). For a public fork it is not needed.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.azahar_repo || 'klark231/AzaharPlus' }}
+          ref: ${{ inputs.azahar_ref || 'locale-translations' }}
+          token: ${{ secrets.AZAHAR_TOKEN || github.token }}
+          submodules: recursive
+          path: azahar
+
+      - name: Apply the port's Android patch
+        working-directory: azahar
         run: |
-          git clone "${{ inputs.azahar_repo || 'https://github.com/AzaharPlus/AzaharPlus.git' }}" azahar
-          cd azahar
-          git checkout "${{ inputs.azahar_ref || 'master' }}"
-          git submodule update --init --recursive --depth 1
-          git apply --check ../mh4u/port/azahar/azahar-android.patch
-          git apply ../mh4u/port/azahar/azahar-android.patch
+          if git apply --check ../mh4u/port/azahar/azahar-android.patch 2>/dev/null; then
+            git apply ../mh4u/port/azahar/azahar-android.patch
+          elif git apply --reverse --check ../mh4u/port/azahar/azahar-android.patch 2>/dev/null; then
+            echo "patch is already in this branch, skipping"
+          else
+            git apply --check ../mh4u/port/azahar/azahar-android.patch
+          fi
 
       - uses: actions/setup-java@v4
         with:
