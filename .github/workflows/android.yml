@@ -1,0 +1,74 @@
+name: android
+
+# Builds the Android APK (app + Azahar core + recompiled-code backend).
+# It does NOT build the game's code library (.so): that needs your own dump, so it is
+# built on your PC with port/android/build-code-library.sh and copied to the phone.
+
+on:
+  workflow_dispatch:
+    inputs:
+      azahar_repo:
+        description: "AzaharPlus repo the patch was written against"
+        default: "https://github.com/AzaharPlus/AzaharPlus.git"
+      azahar_ref:
+        description: "Branch, tag or commit of that repo"
+        default: "master"
+  push:
+    tags: ["android-v*"]
+
+permissions:
+  contents: write   # to attach the APK to a release on tags
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mh4u
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android/sdk/ndk /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: AzaharPlus + the port's Android patch
+        run: |
+          git clone "${{ inputs.azahar_repo || 'https://github.com/AzaharPlus/AzaharPlus.git' }}" azahar
+          cd azahar
+          git checkout "${{ inputs.azahar_ref || 'master' }}"
+          git submodule update --init --recursive --depth 1
+          git apply --check ../mh4u/port/azahar/azahar-android.patch
+          git apply ../mh4u/port/azahar/azahar-android.patch
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: NDK 27 and CMake
+        run: |
+          sdkmanager "ndk;27.3.13750724" "cmake;3.31.6" "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build debug APK
+        working-directory: mh4u/port/android
+        run: gradle assembleDebug --no-daemon -Pazahar.dir=${{ github.workspace }}/azahar
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mh4u-android-debug
+          path: mh4u/port/android/app/build/outputs/apk/debug/*.apk
+
+      - name: Attach to the release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: mh4u/port/android/app/build/outputs/apk/debug/*.apk
+          draft: true
