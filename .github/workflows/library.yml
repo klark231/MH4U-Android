@@ -1,0 +1,77 @@
+name: library
+
+# Builds the game's code library (arm64 .so) from YOUR OWN decrypted update .cia, which you
+# keep as an asset of a release in this PRIVATE repository. Manual runs only: never on pull
+# requests or forks. The output is derived from the game, so it stays an Actions artifact
+# (private, short retention) and is never committed or attached to a release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release (not draft) that holds the update .cia"
+        default: "game-data"
+      opt:
+        description: "O0 builds fastest, O1/O2 run faster"
+        default: "O1"
+
+permissions:
+  contents: read
+
+jobs:
+  lib:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Refuse to run in a public repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          vis=$(gh api "repos/$GITHUB_REPOSITORY" --jq .visibility)
+          [ "$vis" = "private" ] || { echo "repository is $vis, refusing"; exit 1; }
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+
+      - name: NDK 27
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;27.3.13750724"
+
+      - name: Fetch your update .cia from the private release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p data
+          gh release download "${{ inputs.release_tag }}" --pattern 'update.cia*' --dir data
+          ls -l data
+
+      - name: Decrypt (only if you uploaded update.cia.enc)
+        env:
+          DATA_KEY: ${{ secrets.DATA_KEY }}
+        run: |
+          if [ -f data/update.cia.enc ]; then
+            openssl enc -d -aes-256-cbc -pbkdf2 -in data/update.cia.enc -out data/update.cia -pass env:DATA_KEY
+            rm data/update.cia.enc
+          fi
+          test -f data/update.cia
+
+      - name: Build the code library
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/27.3.13750724"
+          port/android/build-code-library.sh data/update.cia "${{ inputs.opt }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mh4u-code-library
+          path: build/android/recomp/*.so
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Remove game data from the runner
+        if: always()
+        run: rm -rf data build
