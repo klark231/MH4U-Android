@@ -14,7 +14,7 @@
 
 #include <android/native_window_jni.h>
 #include <jni.h>
-#include <nlohmann/json.hpp>
+#include <json.hpp>
 
 #include "common/android_utils.h"
 #include "common/file_util.h"
