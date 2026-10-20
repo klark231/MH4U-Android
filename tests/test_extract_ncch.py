@@ -103,10 +103,21 @@ def test_encrypted_ncch_is_refused(tmp_path):
 
 
 def test_title_key_encrypted_cia_is_refused(tmp_path):
+    # really encrypted content is scrambled from its first byte: no NCCH magic to be seen
+    scrambled = bytes(b ^ 0xA5 for b in make_ncch())
     p = tmp_path / "enc.cia"
-    p.write_bytes(make_cia(make_ncch(), encrypted=True))
+    p.write_bytes(make_cia(scrambled, encrypted=True))
     with pytest.raises(ex.DumpError, match="GodMode9"):
         ex.extract(str(p), str(tmp_path / "out"))
+
+
+def test_decrypted_cia_with_stale_encrypted_flag_is_accepted(tmp_path):
+    # some tools decrypt the content but leave the TMD's "encrypted" bit set
+    p = tmp_path / "stale.cia"
+    p.write_bytes(make_cia(make_ncch(), encrypted=True))
+    info = ex.extract(str(p), str(tmp_path / "out"))
+    check_outputs(tmp_path / "out", info)
+    assert any("plain" in line for line in info)
 
 
 def test_garbage_is_rejected(tmp_path):

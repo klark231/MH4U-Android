@@ -178,8 +178,15 @@ def extract(path: str, outdir: str, with_romfs: bool = False) -> list[str]:
             info.append(f"CIA title id  : {c.title_id:016X}  version {c.title_version} "
                         f"(v{c.title_version >> 10}.{(c.title_version >> 4) & 0x3F}.{c.title_version & 0xF})")
             if c.encrypted:
-                raise DumpError("CIA content 0 is encrypted (title key). Decrypt the CIA with "
-                                "GodMode9 on your 3DS first.")
+                # The TMD's "encrypted" bit is only a label, and some tools leave it set after
+                # decrypting. What matters is the data: content that is really title-key
+                # encrypted is scrambled from its first byte, so a plain NCCH header there
+                # means it isn't. Keys are never touched either way.
+                if _read_at(f, c.offset + 0x100, 4) != b"NCCH":
+                    raise DumpError("CIA content 0 is encrypted (title key). Decrypt the CIA "
+                                    "with GodMode9 on your 3DS first.")
+                info.append("note          : TMD marks content 0 encrypted, but its NCCH is "
+                            "plain; continuing")
             base = c.offset
         else:
             base = 0
