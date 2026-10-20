@@ -7,6 +7,7 @@ add_library(mh4u-android SHARED
     emu_window_android.h
     jni_env.cpp
     jni_env.h
+    drawing_stub.cpp
     jni_input.cpp
     keyboard_android.cpp
     keyboard_android.h
