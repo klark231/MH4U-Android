@@ -76,16 +76,16 @@ jobs:
 
       - name: Build debug APK
         working-directory: mh4u/port/android
-        run: gradle assembleDebug --no-daemon -Pazahar.dir=${{ github.workspace }}/azahar
+        run: gradle assembleRelease --no-daemon -Pazahar.dir=${{ github.workspace }}/azahar
 
       - uses: actions/upload-artifact@v4
         with:
-          name: mh4u-android-debug
-          path: mh4u/port/android/app/build/outputs/apk/debug/*.apk
+          name: mh4u-android
+          path: mh4u/port/android/app/build/outputs/apk/release/*.apk
 
       - name: Attach to the release (tags only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: mh4u/port/android/app/build/outputs/apk/debug/*.apk
+          files: mh4u/port/android/app/build/outputs/apk/release/*.apk
           draft: true
