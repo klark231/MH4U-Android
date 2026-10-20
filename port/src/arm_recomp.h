@@ -124,6 +124,9 @@ private:
     const ThreadContext* running_context = nullptr;
     s64 slice_start = 0;
     bool reschedule = false;
+    // Android: a system call waiting for the emulation thread's own stack (see Svc())
+    bool svc_pending = false;
+    u32 svc_imm = 0;
     std::string failure;
     // fallback for code that wasn't recompiled
     std::unique_ptr<Core::ARM_Interface> interp;

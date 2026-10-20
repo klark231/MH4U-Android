@@ -207,6 +207,22 @@ void ARM_Recomp::Execute(s64 budget) {
     running = slot.get();
     running_context = loaded;
     host->SwitchTo(*running->fiber);
+#ifdef __ANDROID__
+    // System calls run here, on the emulation thread's own stack (Svc() hands them over).
+    while (svc_pending) {
+        svc_pending = false;
+        const u32 imm = svc_imm;
+        svc_context.CallSVC(imm);
+        if (imm == SVC_EXIT_THREAD || imm == SVC_EXIT_PROCESS) {
+            running->finished = true;
+            break;
+        }
+        if (reschedule || loaded != running_context) {
+            break; // the kernel wants another thread: this one resumes when it is loaded again
+        }
+        host->SwitchTo(*running->fiber);
+    }
+#endif
     if (running->finished) {
         // The thread exited; its fiber is parked for good and nothing on its stack needs
         // unwinding, so the stack can go.
@@ -343,6 +359,18 @@ void ARM_Recomp::Svc(u32 imm, u32 next_pc) {
     ctx->r[15] = next_pc & ~1u;
     thumb = (next_pc & 1) != 0;
     rc_apply_rounding(0); // Azahar's own code runs with the default rounding
+#ifdef __ANDROID__
+    // The system call goes through Azahar, which calls into Java (file access). Android's
+    // runtime throws a StackOverflowError for Java code that runs on a stack other than the
+    // thread's own, and a fiber's stack is one. So hand the call to Execute(), which runs it
+    // on the emulation thread's stack, and wait to be resumed.
+    svc_imm = imm;
+    svc_pending = true;
+    YieldToHost();
+    if (imm == SVC_EXIT_THREAD || imm == SVC_EXIT_PROCESS) {
+        UNREACHABLE_MSG("exited guest thread resumed");
+    }
+#else
     svc_context.CallSVC(imm);
     if (imm == SVC_EXIT_THREAD || imm == SVC_EXIT_PROCESS) {
         running->finished = true;
@@ -354,6 +382,7 @@ void ARM_Recomp::Svc(u32 imm, u32 next_pc) {
         // threads during the call: park this one until its context is loaded again.
         YieldToHost();
     }
+#endif
     slice_start = ctx->budget = GetTimer().GetDowncount();
     rc_apply_rounding(ctx->fpscr);
 }
