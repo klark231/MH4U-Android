@@ -169,6 +169,10 @@ Core::System::ResultStatus Run(const std::string& game, std::string& message) {
     std::scoped_lock run_lock(g_run_mutex);
     auto& system = Core::System::GetInstance();
 
+    // A new run starts "not stopped": g_stop begins true, so without this the wait below
+    // returns at once, before the surface exists, and the run ends silently.
+    g_stop = false;
+
     // the surface the window draws on: wait for the activity to hand one over
     std::unique_lock<std::recursive_mutex> surface_lock(surface_mutex);
     surface_cv.wait(surface_lock, [] { return g_surface != nullptr || g_stop.load(); });
@@ -215,7 +219,6 @@ Core::System::ResultStatus Run(const std::string& game, std::string& message) {
         return status;
     }
 
-    g_stop = false;
     g_pause = false;
     system.RegisterCoreLoopThreadId();
     SCOPE_EXIT({
