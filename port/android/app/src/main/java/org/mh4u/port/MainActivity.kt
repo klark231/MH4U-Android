@@ -145,6 +145,39 @@ class MainActivity : ComponentActivity() {
             }.getOrElse { out.delete(); message = "Couldn't copy the file: ${it.message}"; null }
         }
 
+        /** Copies the user folder to [target] and remembers it for the next start. */
+        fun moveUserFolder(target: File): String {
+            val old = Storage.root
+            if (target.canonicalPath == old.canonicalPath) return "That folder is already in use."
+            if (!(target.isDirectory || target.mkdirs()) || !target.canWrite()) return "Couldn't write to that folder."
+            // the game's path is absolute: point it at the new place before the copy, so the copy carries it
+            val oldGame = Prefs.gamePath
+            val prefix = "!" + old.absolutePath
+            if (oldGame.startsWith(prefix)) Prefs.gamePath = "!" + target.absolutePath + oldGame.removePrefix(prefix)
+            return runCatching {
+                old.copyRecursively(target, overwrite = false) { _, _ -> OnErrorAction.SKIP }
+                Storage.chooseRoot(target)
+                "Files copied to ${target.absolutePath}. Close the app completely and open it again to use that folder. The old copy is left where it was; delete it when everything works."
+            }.getOrElse { Prefs.gamePath = oldGame; "Couldn't copy the files: ${it.message}" }
+        }
+
+        val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            val path = uri?.let { Storage.treeToPath(it) }
+            if (uri != null && path == null) message = "That folder can't be used. Pick one on the phone's storage or an SD card."
+            if (path != null) scope.launch {
+                busy = "Copying your files…"; progress = -1f; message = ""
+                message = withContext(Dispatchers.IO) { moveUserFolder(File(path)) }
+                busy = ""
+            }
+        }
+
+        fun askFolder() {
+            if (!Storage.hasAllFilesAccess()) {
+                message = "Allow \"All files access\" for this app on the next screen, then come back and choose the folder again."
+                ctx.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:" + ctx.packageName)))
+            } else pickFolder.launch(null)
+        }
+
         val pickGame = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri != null) scope.launch {
                 busy = "Copying the game…"; progress = 0f; message = ""
@@ -208,6 +241,9 @@ class MainActivity : ComponentActivity() {
             Panel {
                 Text(Storage.root.absolutePath, fontSize = 12.sp, color = Mh4uColors.TextDisabled)
                 Hint("Settings, saves and the user folder live here. mh4u-app.ini and mh4u.ini are the PC port's files and can be copied between the two.")
+                Spacer(Modifier.height(8.dp))
+                QuietButton("Use a folder on this phone", enabled = busy.isEmpty()) { askFolder() }
+                Hint("Keeps your game, saves and settings where you can reach them, and they survive an uninstall. Needs \"All files access\".")
             }
             Spacer(Modifier.height(24.dp))
         }

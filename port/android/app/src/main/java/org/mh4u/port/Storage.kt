@@ -17,10 +17,36 @@ object Storage {
     private lateinit var appContext: Context
     private lateinit var rootDir: File
 
+    private const val PREFS = "mh4u_storage"
+
     fun init(context: Context) {
         appContext = context.applicationContext
-        rootDir = (appContext.getExternalFilesDir(null) ?: appContext.filesDir).also { it.mkdirs() }
+        // a folder the person picked on shared storage, if it can still be used
+        val chosen = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("root", null)?.let { File(it) }
+        rootDir = (chosen?.takeIf { hasAllFilesAccess() && (it.isDirectory || it.mkdirs()) && it.canWrite() }
+            ?: defaultRoot).also { it.mkdirs() }
     }
+
+    /** The app's own external files folder: where everything lives unless another is chosen. */
+    val defaultRoot: File get() = appContext.getExternalFilesDir(null) ?: appContext.filesDir
+
+    fun hasAllFilesAccess(): Boolean = android.os.Environment.isExternalStorageManager()
+
+    /** Remembers [dir] as the user folder from the next start (null: the default). */
+    fun chooseRoot(dir: File?) {
+        appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().apply {
+            if (dir == null) remove("root") else putString("root", dir.absolutePath)
+        }.apply()
+    }
+
+    /** The path of a folder picked with the system's folder picker (internal storage or an SD card). */
+    fun treeToPath(uri: android.net.Uri): String? = runCatching {
+        val id = android.provider.DocumentsContract.getTreeDocumentId(uri)   // "primary:MH4U"
+        val volume = id.substringBefore(':')
+        val rel = id.substringAfter(':', "")
+        val base = if (volume == "primary") android.os.Environment.getExternalStorageDirectory().path else "/storage/$volume"
+        if (rel.isEmpty()) base else "$base/$rel"
+    }.getOrNull()
 
     val root: File get() = rootDir
     val games: File get() = File(rootDir, "games").also { it.mkdirs() }
