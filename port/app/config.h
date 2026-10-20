@@ -24,8 +24,17 @@ struct Config {
     // [Display]
     std::string renderer = "vulkan";  ///< vulkan, opengl or software
     bool fullscreen = true;
+#ifdef __ANDROID__
+    int resolution = 2;               ///< internal resolution, times the 3DS's; 0: from the window
+#else
     int resolution = 0;               ///< internal resolution, times the 3DS's; 0: from the window
+#endif
     bool vsync = true;
+#ifdef __ANDROID__
+    bool accurate_mul = false;        ///< exact shader multiplication: slower, rarely needed
+#else
+    bool accurate_mul = true;
+#endif
     /// The screens: overlay (the game fills the window, the touch screen over it in a corner as
     /// mh4u.ini's touch_overlay says), single (the game alone), stacked (as on a 3DS), side (side
     /// by side), windows (the touch screen in a window of its own)

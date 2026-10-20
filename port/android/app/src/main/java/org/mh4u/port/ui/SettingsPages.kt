@@ -191,6 +191,10 @@ fun DisplayPage() = Page {
         ToggleRow("Smooth scaling", null, filter) { filter = it; Prefs.setBool("Display", "linear_filter", it); Prefs.apply() }
         var vsync by remember { mutableStateOf(Prefs.getBool("Display", "vsync", true)) }
         ToggleRow("VSync", null, vsync) { vsync = it; Prefs.setBool("Display", "vsync", it); Prefs.apply() }
+        var accMul by remember { mutableStateOf(Prefs.getBool("Display", "accurate_mul", false)) }
+        ToggleRow("Accurate shader math", "Off is faster on most phones; applies the next time the game starts.", accMul) {
+            accMul = it; Prefs.setBool("Display", "accurate_mul", it)
+        }
         var tex by remember { mutableStateOf(Prefs.getBool("Display", "custom_textures", false)) }
         ToggleRow("Custom textures", "Loads replacement textures from the user folder; applies the next time the game starts.", tex) {
             tex = it; Prefs.setBool("Display", "custom_textures", it)

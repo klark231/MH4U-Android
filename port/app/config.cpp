@@ -1,6 +1,8 @@
 #include "config.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <fmt/format.h>
 #include <INIReader.h>
 
@@ -69,7 +71,24 @@ Config Load() {
         LOG_INFO(Frontend, "wrote {} with the defaults", path);
         return c;
     }
+#ifdef __ANDROID__
+    // On Android the user folder is a virtual path that only the core's file code understands,
+    // and INIReader opens real files. So read it the core's way and parse a copy kept in the
+    // app's private folder.
+    std::string real = path;
+    if (const char* priv = std::getenv("MH4U_PRIVATE_DIR")) {
+        std::string text;
+        FileUtil::ReadFileToString(true, path, text);
+        real = std::string(priv) + "/mh4u-app.ini";
+        if (std::FILE* f = std::fopen(real.c_str(), "wb")) {
+            std::fwrite(text.data(), 1, text.size(), f);
+            std::fclose(f);
+        }
+    }
+    INIReader ini(real);
+#else
     INIReader ini(path);
+#endif
     if (ini.ParseError() < 0) {
         LOG_ERROR(Frontend, "couldn't read {}, using the defaults", path);
         return c;
@@ -96,6 +115,7 @@ Config Load() {
     c.fullscreen = flag("Display", "fullscreen", c.fullscreen);
     c.resolution = num("Display", "resolution", c.resolution, 0, 10);
     c.vsync = flag("Display", "vsync", c.vsync);
+    c.accurate_mul = flag("Display", "accurate_mul", c.accurate_mul);
     c.screens = str("Display", "screens", c.screens);
     c.linear_filter = flag("Display", "linear_filter", c.linear_filter);
     c.custom_textures = flag("Display", "custom_textures", c.custom_textures);
@@ -274,6 +294,7 @@ void Apply(const Config& c) {
     }
     v.resolution_factor = static_cast<u32>(c.resolution);
     v.use_vsync = c.vsync;
+    v.shaders_accurate_mul = c.accurate_mul;
     v.filter_mode = c.linear_filter;
     v.custom_textures = c.custom_textures;
     v.is_new_3ds = c.new_3ds == "auto" ? !c.custom_textures : IsOn(c.new_3ds);
