@@ -17,7 +17,8 @@ android {
         applicationId = "org.mh4u.port"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
+        // CI passes its run number, so every build counts as newer than the last
+        versionCode = System.getenv("MH4U_VERSION_CODE")?.toIntOrNull() ?: 1
         versionName = "0.1"
         ndk { abiFilters += listOf("arm64-v8a") }
         externalNativeBuild {
@@ -40,12 +41,26 @@ android {
         }
     }
 
+    // One signing key for every build, so each APK can update the last one (SIGNING.md). The key
+    // comes from the environment (CI: GitHub secrets); without it the debug key is used.
+    signingConfigs {
+        val keystore = System.getenv("MH4U_KEYSTORE_FILE")
+        if (!keystore.isNullOrEmpty() && file(keystore).exists()) {
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("MH4U_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("MH4U_KEY_ALIAS")
+                keyPassword = System.getenv("MH4U_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 

@@ -51,7 +51,7 @@ class EmulationActivity : ComponentActivity(), SurfaceHolder.Callback {
         val surface = SurfaceView(this).also { it.holder.addCallback(this) }
         overlay = OverlayView(this, OverlayLayout.load(isPortrait())).apply {
             onMenu = { openMenu() }
-            onSelect = { selected = it }
+            onSelect = { c -> this@EmulationActivity.selected = c }   // not the view's own `selected`: that loops
         }
         applyOverlayPrefs()
         root.addView(surface, FrameLayout.LayoutParams(-1, -1))
@@ -145,9 +145,9 @@ class EmulationActivity : ComponentActivity(), SurfaceHolder.Callback {
 
     // ── editing the on-screen controls ──
 
-    private fun startEditing() { overlay.shown = true; overlay.controlsVisible = true; overlay.editing = true; editing = true }
+    private fun startEditing() { overlay.selected = null; overlay.shown = true; overlay.controlsVisible = true; overlay.editing = true; editing = true }
     private fun stopEditing() {
-        overlay.editing = false; editing = false; overlay.layout.save(isPortrait()); selected = null; closeMenu()
+        overlay.editing = false; editing = false; overlay.layout.save(isPortrait()); overlay.selected = null; closeMenu()
     }
 
     @Composable
@@ -168,13 +168,13 @@ class EmulationActivity : ComponentActivity(), SurfaceHolder.Callback {
                         QuietButton("+", enabled = selected != null) { selected?.let { it.size = (it.size * 1.1f).coerceAtMost(0.5f); overlay.invalidate() } }
                         QuietButton("Hide", enabled = selected != null) { selected?.let { it.visible = !it.visible; overlay.invalidate() } }
                         QuietButton("Delete", enabled = selected?.kind == Control.Kind.COMBO) {
-                            selected?.let { overlay.layout.controls.remove(it); selected = null; overlay.invalidate() }
+                            selected?.let { overlay.layout.controls.remove(it); overlay.selected = null; overlay.invalidate() }
                         }
                     }
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         QuietButton("Add combo") { adding = !adding }
-                        QuietButton("Reset") { overlay.layout.controls.clear(); overlay.layout.controls.addAll(OverlayLayout.defaults(isPortrait()).controls); selected = null; overlay.invalidate() }
+                        QuietButton("Reset") { overlay.layout.controls.clear(); overlay.layout.controls.addAll(OverlayLayout.defaults(isPortrait()).controls); overlay.selected = null; overlay.invalidate() }
                         AmberButton("Done") { stopEditing() }
                     }
                     if (adding) {
@@ -183,7 +183,7 @@ class EmulationActivity : ComponentActivity(), SurfaceHolder.Callback {
                         FlowChips(mask) { mask = it }
                         ToggleRow("Stay pressed until tapped again", null, latch) { latch = it }
                         AmberButton("Create", enabled = mask != 0 && comboName.isNotBlank()) {
-                            selected = overlay.layout.addCombo(comboName.trim().take(6), mask, latch)
+                            overlay.selected = overlay.layout.addCombo(comboName.trim().take(6), mask, latch)
                             overlay.invalidate(); adding = false; comboName = ""; mask = 0
                         }
                     }

@@ -26,7 +26,7 @@ class OverlayView(context: Context, var layout: OverlayLayout) : View(context) {
     var editing = false
         set(v) { field = v; if (v) releaseEverything(); invalidate() }
     var selected: Control? = null
-        set(v) { field = v; onSelect?.invoke(v); invalidate() }
+        set(v) { if (field === v) return; field = v; onSelect?.invoke(v); invalidate() }
     var onSelect: ((Control?) -> Unit)? = null
     var onMenu: (() -> Unit)? = null
     /** The controls on screen; off, the view still passes touches to the 3DS touch screen. */

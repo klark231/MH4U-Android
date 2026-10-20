@@ -74,9 +74,38 @@ jobs:
           # azahar/externals, which this build never runs (we use the installed Gradle).
           validate-wrappers: false
 
-      - name: Build debug APK
+      # The one key every build is signed with (port/android/SIGNING.md). Without the secrets
+      # the APK is signed with a throwaway debug key and can't update an installed build.
+      - name: Signing key
+        id: key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/mh4u-release.jks"
+            echo "MH4U_KEYSTORE_FILE=$RUNNER_TEMP/mh4u-release.jks" >> "$GITHUB_ENV"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::ANDROID_KEYSTORE_BASE64 is not set: this APK gets a debug key and cannot update an installed build"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release APK
         working-directory: mh4u/port/android
+        env:
+          MH4U_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          MH4U_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          MH4U_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          MH4U_VERSION_CODE: ${{ github.run_number }}
         run: gradle assembleRelease --no-daemon -Pazahar.dir=${{ github.workspace }}/azahar
+
+      - name: Show the signature
+        run: |
+          APKSIGNER=$(ls "${ANDROID_HOME:-/usr/local/lib/android/sdk}"/build-tools/35.0.0/apksigner)
+          for apk in mh4u/port/android/app/build/outputs/apk/release/*.apk; do
+            echo "$apk"; "$APKSIGNER" verify --print-certs "$apk" | grep -E "SHA-256|Signer #1 certificate DN"
+          done
+          rm -f "$RUNNER_TEMP/mh4u-release.jks"
 
       - uses: actions/upload-artifact@v4
         with:
