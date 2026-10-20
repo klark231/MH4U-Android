@@ -202,6 +202,35 @@ fun DisplayPage() = Page {
         var fpsCounter by remember { mutableStateOf(Prefs.getApp("Display", "fps_counter", "off")) }
         ChoiceRow("Frame counter", null, ON_OFF, fpsCounter) { fpsCounter = it; Prefs.setApp("Display", "fps_counter", it) }
     }
+
+    SectionTitle("Advanced graphics")
+    Panel {
+        var asyncSh by remember { mutableStateOf(Prefs.getBool("Display", "async_shaders", true)) }
+        ToggleRow("Compile shaders in the background", "Stops the stutter when a new effect first appears; an effect can be missing for a moment. Applies the next time the game starts.", asyncSh) {
+            asyncSh = it; Prefs.setBool("Display", "async_shaders", it)
+        }
+        RowDivider()
+        var cache by remember { mutableStateOf(Prefs.getBool("Display", "disk_shader_cache", true)) }
+        ToggleRow("Keep a shader cache on disk", "Makes later launches smoother. Applies the next time the game starts.", cache) {
+            cache = it; Prefs.setBool("Display", "disk_shader_cache", it)
+        }
+        RowDivider()
+        var skipDup by remember { mutableStateOf(Prefs.getBool("Display", "skip_duplicate_frames", false)) }
+        ToggleRow("Skip repeated frames", "Saves work when the picture hasn't changed.", skipDup) {
+            skipDup = it; Prefs.setBool("Display", "skip_duplicate_frames", it)
+        }
+        RowDivider()
+        var texFilter by remember { mutableStateOf(Prefs.getApp("Display", "texture_filter", "none")) }
+        ChoiceRow("Texture filter", "Smooths low-resolution textures. The heavier ones cost speed.",
+            listOf("None" to "none", "Bicubic" to "bicubic", "ScaleForce" to "scaleforce", "xBRZ" to "xbrz", "MMPX" to "mmpx", "Anime4K" to "anime4k"), texFilter) {
+            texFilter = it; Prefs.setApp("Display", "texture_filter", it)
+        }
+        RowDivider()
+        var texSampling by remember { mutableStateOf(Prefs.getApp("Display", "texture_sampling", "game")) }
+        ChoiceRow("Texture sampling", null, listOf("Game's choice" to "game", "Nearest" to "nearest", "Linear" to "linear"), texSampling) {
+            texSampling = it; Prefs.setApp("Display", "texture_sampling", it)
+        }
+    }
     Spacer(Modifier.height(24.dp))
 }
 

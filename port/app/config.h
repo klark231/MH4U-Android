@@ -41,6 +41,15 @@ struct Config {
     std::string screens = "overlay";
     bool linear_filter = true;        ///< smooth the picture when it is scaled
     bool custom_textures = false;     ///< texture packs in load/textures/<program id>/
+#ifdef __ANDROID__
+    bool async_shaders = true;        ///< compile shaders in the background instead of stalling
+#else
+    bool async_shaders = false;
+#endif
+    bool disk_shader_cache = true;    ///< keep compiled shaders between launches
+    bool skip_duplicate_frames = false;
+    std::string texture_filter = "none";    ///< none, bicubic, scaleforce, xbrz, mmpx, anime4k
+    std::string texture_sampling = "game";  ///< game, nearest, linear
     std::string shader;               ///< a post-processing shader, empty: none
     /// The frame-rate counter over the game: off, top-left, top-right, bottom-left, bottom-right
     std::string fps_counter = "off";

@@ -119,6 +119,11 @@ Config Load() {
     c.screens = str("Display", "screens", c.screens);
     c.linear_filter = flag("Display", "linear_filter", c.linear_filter);
     c.custom_textures = flag("Display", "custom_textures", c.custom_textures);
+    c.async_shaders = flag("Display", "async_shaders", c.async_shaders);
+    c.disk_shader_cache = flag("Display", "disk_shader_cache", c.disk_shader_cache);
+    c.skip_duplicate_frames = flag("Display", "skip_duplicate_frames", c.skip_duplicate_frames);
+    c.texture_filter = str("Display", "texture_filter", c.texture_filter);
+    c.texture_sampling = str("Display", "texture_sampling", c.texture_sampling);
     c.shader = str("Display", "shader", c.shader);
     c.fps_counter = str("Display", "fps_counter", c.fps_counter);
 
@@ -297,6 +302,23 @@ void Apply(const Config& c) {
     v.shaders_accurate_mul = c.accurate_mul;
     v.filter_mode = c.linear_filter;
     v.custom_textures = c.custom_textures;
+    v.async_shader_compilation = c.async_shaders;
+    v.use_disk_shader_cache = c.disk_shader_cache;
+    v.use_skip_duplicate_frames = c.skip_duplicate_frames;
+    {
+        using TF = Settings::TextureFilter;
+        const std::string& f = c.texture_filter;
+        v.texture_filter = f == "anime4k"      ? TF::Anime4K
+                           : f == "bicubic"    ? TF::Bicubic
+                           : f == "scaleforce" ? TF::ScaleForce
+                           : f == "xbrz"       ? TF::xBRZ
+                           : f == "mmpx"       ? TF::MMPX
+                                               : TF::NoFilter;
+        using TS = Settings::TextureSampling;
+        v.texture_sampling = c.texture_sampling == "nearest"  ? TS::NearestNeighbor
+                             : c.texture_sampling == "linear" ? TS::Linear
+                                                              : TS::GameControlled;
+    }
     v.is_new_3ds = c.new_3ds == "auto" ? !c.custom_textures : IsOn(c.new_3ds);
     v.cpu_clock_percentage = static_cast<u32>(std::clamp(c.cpu_clock, 5, 400));
     v.async_custom_loading = true;
