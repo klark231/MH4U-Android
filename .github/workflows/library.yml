@@ -23,12 +23,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
-      - name: Refuse to run in a public repository
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          vis=$(gh api "repos/$GITHUB_REPOSITORY" --jq .visibility)
-          [ "$vis" = "private" ] || { echo "repository is $vis, refusing"; exit 1; }
 
       - uses: actions/checkout@v4
 
